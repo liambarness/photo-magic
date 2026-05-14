@@ -1,7 +1,9 @@
-import { put, head } from "@vercel/blob";
+import { head, put } from "@vercel/blob";
 import type { Preset } from "@/types";
 
-const STORE_KEY = "data/store.json";
+const LEGACY_STORE_KEY = "data/store.json";
+const SETTINGS_KEY = "data/settings.json";
+const PRESETS_KEY = "data/presets.json";
 
 interface SettingsData {
   brandRules: string;
@@ -31,73 +33,101 @@ const DEFAULTS: StoreData = {
   presets: [],
 };
 
-export async function readStore(): Promise<StoreData> {
+async function readBlobJson<T>(key: string): Promise<T | null> {
   try {
-    const info = await head(STORE_KEY);
+    const info = await head(key);
     const res = await fetch(info.url);
-    const data = (await res.json()) as Partial<StoreData>;
-    return {
-      settings: { ...DEFAULTS.settings, ...data.settings },
-      presets: data.presets ?? [],
-    };
+    return (await res.json()) as T;
   } catch {
-    return { ...DEFAULTS };
+    return null;
   }
 }
 
-export async function writeStore(data: StoreData): Promise<void> {
-  await put(STORE_KEY, JSON.stringify(data, null, 2), {
+async function writeBlobJson(key: string, data: unknown): Promise<void> {
+  await put(key, JSON.stringify(data, null, 2), {
     access: "public",
     addRandomSuffix: false,
     contentType: "application/json",
   });
 }
 
+async function readLegacyStore(): Promise<Partial<StoreData> | null> {
+  return readBlobJson<Partial<StoreData>>(LEGACY_STORE_KEY);
+}
+
+export async function readStore(): Promise<StoreData> {
+  const [settings, presets, legacy] = await Promise.all([
+    readBlobJson<Partial<SettingsData>>(SETTINGS_KEY),
+    readBlobJson<Preset[]>(PRESETS_KEY),
+    readLegacyStore(),
+  ]);
+
+  return {
+    settings: {
+      ...DEFAULTS.settings,
+      ...(legacy?.settings ?? {}),
+      ...(settings ?? {}),
+    },
+    presets: presets ?? legacy?.presets ?? [],
+  };
+}
+
+export async function writeStore(data: StoreData): Promise<void> {
+  await Promise.all([
+    writeBlobJson(SETTINGS_KEY, data.settings),
+    writeBlobJson(PRESETS_KEY, data.presets),
+  ]);
+}
+
 export async function getSettings(): Promise<SettingsData> {
-  const store = await readStore();
-  return store.settings;
+  const settings = await readBlobJson<Partial<SettingsData>>(SETTINGS_KEY);
+  if (settings) return { ...DEFAULTS.settings, ...settings };
+
+  const legacy = await readLegacyStore();
+  return { ...DEFAULTS.settings, ...legacy?.settings };
 }
 
 export async function updateSettings(patch: Partial<SettingsData>): Promise<SettingsData> {
-  const store = await readStore();
-  store.settings = { ...store.settings, ...patch };
-  await writeStore(store);
-  return store.settings;
+  const settings = { ...(await getSettings()), ...patch };
+  await writeBlobJson(SETTINGS_KEY, settings);
+  return settings;
 }
 
 export async function resetSettings(): Promise<SettingsData> {
-  const store = await readStore();
-  store.settings = { ...DEFAULTS.settings };
-  await writeStore(store);
-  return store.settings;
+  const settings = { ...DEFAULTS.settings };
+  await writeBlobJson(SETTINGS_KEY, settings);
+  return settings;
 }
 
 export async function getPresets(): Promise<Preset[]> {
-  const store = await readStore();
-  return store.presets;
+  const presets = await readBlobJson<Preset[]>(PRESETS_KEY);
+  if (presets) return presets;
+
+  const legacy = await readLegacyStore();
+  return legacy?.presets ?? [];
 }
 
 export async function addPreset(preset: Preset): Promise<Preset[]> {
-  const store = await readStore();
-  store.presets.push(preset);
-  await writeStore(store);
-  return store.presets;
+  const presets = await getPresets();
+  const next = [...presets.filter((p) => p.id !== preset.id), preset];
+  await writeBlobJson(PRESETS_KEY, next);
+  return next;
 }
 
 export async function updatePreset(id: string, patch: Partial<Omit<Preset, "id" | "createdAt">>): Promise<Preset[]> {
-  const store = await readStore();
-  store.presets = store.presets.map((p) =>
+  const presets = await getPresets();
+  const next = presets.map((p) =>
     p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p
   );
-  await writeStore(store);
-  return store.presets;
+  await writeBlobJson(PRESETS_KEY, next);
+  return next;
 }
 
 export async function deletePreset(id: string): Promise<Preset[]> {
-  const store = await readStore();
-  store.presets = store.presets.filter((p) => p.id !== id);
-  await writeStore(store);
-  return store.presets;
+  const presets = await getPresets();
+  const next = presets.filter((p) => p.id !== id);
+  await writeBlobJson(PRESETS_KEY, next);
+  return next;
 }
 
 export { DEFAULTS as STORE_DEFAULTS };

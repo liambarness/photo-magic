@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import type { Preset } from "@/types";
+import { toast } from "sonner";
 
 interface PresetState {
   presets: Preset[];
@@ -42,40 +43,61 @@ export const usePresetStore = create<PresetState>((set, get) => ({
   },
 
   addPreset: async (preset) => {
+    const previous = get().presets;
     set((s) => ({ presets: [...s.presets, preset] }));
     try {
-      await fetch("/api/presets", {
+      const res = await fetch("/api/presets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(preset),
       });
-    } catch {}
+      if (!res.ok) throw new Error("Preset save failed");
+      const presets = await res.json();
+      set({ presets });
+    } catch {
+      set({ presets: previous });
+      toast.error("Preset could not be saved.");
+    }
   },
 
   updatePreset: async (id, patch) => {
+    const previous = get().presets;
     set((s) => ({
       presets: s.presets.map((p) =>
         p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p
       ),
     }));
     try {
-      await fetch("/api/presets", {
+      const res = await fetch("/api/presets", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, ...patch }),
       });
-    } catch {}
+      if (!res.ok) throw new Error("Preset update failed");
+      const presets = await res.json();
+      set({ presets });
+    } catch {
+      set({ presets: previous });
+      toast.error("Preset could not be updated.");
+    }
   },
 
   deletePreset: async (id) => {
+    const previous = get().presets;
     set((s) => ({ presets: s.presets.filter((p) => p.id !== id) }));
     try {
-      await fetch("/api/presets", {
+      const res = await fetch("/api/presets", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
-    } catch {}
+      if (!res.ok) throw new Error("Preset delete failed");
+      const presets = await res.json();
+      set({ presets });
+    } catch {
+      set({ presets: previous });
+      toast.error("Preset could not be deleted.");
+    }
   },
 
   getPreset: (id) => get().presets.find((p) => p.id === id),

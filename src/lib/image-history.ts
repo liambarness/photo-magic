@@ -52,6 +52,11 @@ export async function getImageHistory(): Promise<ImageHistoryItem[]> {
   return data.items.sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
+export async function getImageHistoryItem(id: string): Promise<ImageHistoryItem | null> {
+  const data = await readHistoryData();
+  return data.items.find((item) => item.id === id) ?? null;
+}
+
 export async function upsertSourceImage(input: {
   id: string;
   name: string;

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai";
 import { saveFile } from "@/lib/file-utils";
+import { getImageHistoryItem } from "@/lib/image-history";
 import { list } from "@vercel/blob";
 
 const MIME: Record<string, string> = {
@@ -36,10 +37,20 @@ export async function POST(request: Request) {
     const subfolder = label ? `${folder}/${label}` : folder;
     const source = await resolveSourceImage(sourceUrl, subfolder, photoId);
     if (!source) {
-      return NextResponse.json({ error: "Source image not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Source image not found: no uploaded source URL or Blob history entry was available." },
+        { status: 404 }
+      );
     }
 
     const sourceRes = await fetch(source.url);
+    if (!sourceRes.ok) {
+      return NextResponse.json(
+        { error: `Source image not found: Blob fetch returned ${sourceRes.status}.` },
+        { status: 404 }
+      );
+    }
+
     const imageBuffer = Buffer.from(await sourceRes.arrayBuffer());
     const ext = source.ext;
     const imageFile = new File([imageBuffer], `source.${ext}`, {
@@ -98,11 +109,12 @@ async function resolveSourceImage(
   photoId: string
 ): Promise<{ url: string; ext: string } | null> {
   if (typeof sourceUrl === "string" && sourceUrl.startsWith("http")) {
-    const pathname = new URL(sourceUrl).pathname;
-    return {
-      url: sourceUrl,
-      ext: pathname.split(".").pop()?.toLowerCase() || "png",
-    };
+    return imageSource(sourceUrl);
+  }
+
+  const historyItem = await getImageHistoryItem(photoId);
+  if (historyItem?.sourceUrl) {
+    return imageSource(historyItem.sourceUrl);
   }
 
   const prefix = `${subfolder}/source_${photoId.slice(0, 8)}`;
@@ -113,5 +125,13 @@ async function resolveSourceImage(
   return {
     url: sourceBlob.url,
     ext: sourceBlob.pathname.split(".").pop()?.toLowerCase() || "png",
+  };
+}
+
+function imageSource(url: string): { url: string; ext: string } {
+  const pathname = new URL(url).pathname;
+  return {
+    url,
+    ext: pathname.split(".").pop()?.toLowerCase() || "png",
   };
 }
