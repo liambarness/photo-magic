@@ -29,6 +29,10 @@ async function readHistoryData(): Promise<ImageHistoryData> {
   return { items: Array.isArray(data?.items) ? data.items : [] };
 }
 
+export async function clearImageHistory(): Promise<void> {
+  await writeHistoryData({ items: [] });
+}
+
 async function writeHistoryData(data: ImageHistoryData): Promise<void> {
   const items = data.items
     .sort((a, b) => b.updatedAt - a.updatedAt)

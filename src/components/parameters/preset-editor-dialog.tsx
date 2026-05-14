@@ -193,7 +193,6 @@ export function PresetEditorDialog({ open, onOpenChange, editId }: PresetEditorD
               </ul>
               <p className="font-medium text-muted-foreground pt-1">Describe what makes this product type unique:</p>
               <ul className="list-disc pl-3.5 space-y-0.5">
-                <li>Pose, angle, or positioning details</li>
                 <li>What details to emphasize (logo, print, texture)</li>
                 <li>How the product should sit or drape</li>
               </ul>
