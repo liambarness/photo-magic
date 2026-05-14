@@ -75,16 +75,17 @@ export async function POST(request: Request) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const usage = (response as any).usage ?? null;
     const cost = estimateCost(usage);
+    const tokenUsage = usage
+      ? {
+          inputTokens: usage.input_tokens ?? 0,
+          outputTokens: usage.output_tokens ?? 0,
+          totalTokens: usage.total_tokens ?? 0,
+      }
+      : null;
 
     return NextResponse.json({
       resultUrl: `${resultUrl}?t=${Date.now()}`,
-      usage: usage
-        ? {
-            inputTokens: usage.input_tokens ?? 0,
-            outputTokens: usage.output_tokens ?? 0,
-            totalTokens: usage.total_tokens ?? 0,
-          }
-        : null,
+      usage: tokenUsage,
       cost,
     });
   } catch (err) {

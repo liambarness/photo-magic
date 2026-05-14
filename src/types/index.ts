@@ -32,6 +32,7 @@ export interface SourcePhoto {
   id: string;
   name: string;
   label: string;
+  batchFolder: string;
   previewUrl: string;
   serverPath: string | null;
   status: "pending" | "processing" | "done" | "error";
@@ -40,4 +41,6 @@ export interface SourcePhoto {
   usedSettings: PhotoSettings;
   cost: number;
   usage: TokenUsage | null;
+  createdAt?: number;
+  updatedAt?: number;
 }

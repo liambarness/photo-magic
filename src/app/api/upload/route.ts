@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai";
 import { saveFile } from "@/lib/file-utils";
+import { upsertSourceImage } from "@/lib/image-history";
+import type { PhotoSettings } from "@/types";
 
 async function classifyImage(
   file: File,
@@ -57,6 +59,7 @@ export async function POST(request: Request) {
     const ids = formData.getAll("ids") as string[];
     const product = (formData.get("product") as string) || "";
     const shotType = (formData.get("shotType") as string) || "";
+    const settings = parsePhotoSettings(formData.get("settings"), product, shotType);
 
     if (!folder || files.length === 0) {
       return NextResponse.json({ error: "Missing folder or files" }, { status: 400 });
@@ -75,6 +78,14 @@ export async function POST(request: Request) {
 
       const buffer = Buffer.from(await file.arrayBuffer());
       const blobUrl = await saveFile(subfolder, sourceFilename, buffer);
+      await upsertSourceImage({
+        id,
+        name: file.name,
+        label,
+        batchFolder: folder,
+        sourceUrl: blobUrl,
+        usedSettings: settings,
+      });
 
       results.push({
         id,
@@ -89,4 +100,27 @@ export async function POST(request: Request) {
     console.error("Upload error:", err);
     return NextResponse.json({ error: "Upload failed" }, { status: 500 });
   }
+}
+
+function parsePhotoSettings(
+  raw: FormDataEntryValue | null,
+  product: string,
+  shotType: string
+): PhotoSettings {
+  try {
+    if (typeof raw === "string") {
+      const parsed = JSON.parse(raw) as Partial<PhotoSettings>;
+      return {
+        presetId: parsed.presetId ?? null,
+        presetName: parsed.presetName || product || "None",
+        shotMode: parsed.shotMode === "model" ? "model" : "product",
+      };
+    }
+  } catch {}
+
+  return {
+    presetId: null,
+    presetName: product || "None",
+    shotMode: shotType === "model" ? "model" : "product",
+  };
 }

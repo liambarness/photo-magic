@@ -10,6 +10,7 @@ interface AppState {
 
   photos: SourcePhoto[];
   selectedIds: string[];
+  _historyLoaded: boolean;
 
   selectPreset: (presetId: string) => void;
   clearPreset: () => void;
@@ -20,7 +21,8 @@ interface AppState {
   getActivePrompt: () => string | null;
 
   addPhotos: (photos: SourcePhoto[]) => void;
-  updatePhotoLabel: (photoId: string, label: string) => void;
+  loadHistory: () => Promise<void>;
+  updatePhotoUpload: (photoId: string, patch: Pick<SourcePhoto, "label" | "previewUrl" | "serverPath">) => void;
   setPhotoStatus: (
     photoId: string,
     status: SourcePhoto["status"],
@@ -42,6 +44,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   photos: [],
   selectedIds: [],
+  _historyLoaded: false,
 
   selectPreset: (presetId) => {
     set({ activePreset: { presetId, notes: "", modelGender: "varied", modelBuild: "varied" } });
@@ -105,9 +108,27 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({ photos: [...s.photos, ...photos] }));
   },
 
-  updatePhotoLabel: (photoId, label) => {
+  loadHistory: async () => {
+    try {
+      const res = await fetch("/api/history");
+      if (!res.ok) throw new Error("History load failed");
+      const data = (await res.json()) as { photos?: SourcePhoto[] };
+      set((s) => {
+        const existingIds = new Set(s.photos.map((p) => p.id));
+        const history = (data.photos ?? []).filter((p) => !existingIds.has(p.id));
+        return {
+          photos: [...history, ...s.photos],
+          _historyLoaded: true,
+        };
+      });
+    } catch {
+      set({ _historyLoaded: true });
+    }
+  },
+
+  updatePhotoUpload: (photoId, patch) => {
     set((s) => ({
-      photos: s.photos.map((p) => (p.id === photoId ? { ...p, label } : p)),
+      photos: s.photos.map((p) => (p.id === photoId ? { ...p, ...patch } : p)),
     }));
   },
 

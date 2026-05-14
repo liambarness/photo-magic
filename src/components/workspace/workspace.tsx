@@ -27,10 +27,21 @@ function batchFolder(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+async function saveHistory(photos: SourcePhoto[]): Promise<void> {
+  if (photos.length === 0) return;
+
+  const res = await fetch("/api/history", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ photos }),
+  });
+  if (!res.ok) throw new Error("History save failed");
+}
+
 export function Workspace() {
   const photos = useAppStore((s) => s.photos);
   const addPhotos = useAppStore((s) => s.addPhotos);
-  const updatePhotoLabel = useAppStore((s) => s.updatePhotoLabel);
+  const updatePhotoUpload = useAppStore((s) => s.updatePhotoUpload);
   const getActivePrompt = useAppStore((s) => s.getActivePrompt);
   const snapshotSettings = useAppStore((s) => s.snapshotSettings);
   const setPhotoStatus = useAppStore((s) => s.setPhotoStatus);
@@ -59,12 +70,13 @@ export function Workspace() {
 
       const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
       const label = photo?.label || "";
+      const batchFolder = photo?.batchFolder || folder;
 
       try {
         const res = await fetch("/api/touch-up", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ folder, photoId, label, prompt: finalPrompt, imageSize, imageQuality, outputFormat }),
+          body: JSON.stringify({ folder: batchFolder, photoId, label, prompt: finalPrompt, imageSize, imageQuality, outputFormat }),
           signal: AbortSignal.timeout(timeoutMs),
         });
 
@@ -98,6 +110,7 @@ export function Workspace() {
         id: crypto.randomUUID(),
         name: f.name,
         label: "",
+        batchFolder: folder,
         previewUrl: URL.createObjectURL(f),
         serverPath: null,
         status: "pending" as const,
@@ -114,6 +127,7 @@ export function Workspace() {
       formData.append("folder", folder);
       formData.append("product", settings.presetName);
       formData.append("shotType", settings.shotMode);
+      formData.append("settings", JSON.stringify(settings));
       files.forEach((f, i) => {
         formData.append("files", f);
         formData.append("ids", newPhotos[i].id);
@@ -124,7 +138,11 @@ export function Workspace() {
         const uploadData = await uploadRes.json();
         if (uploadData.results) {
           for (const r of uploadData.results) {
-            if (r.label) updatePhotoLabel(r.id, r.label);
+            updatePhotoUpload(r.id, {
+              label: r.label || "",
+              previewUrl: r.servingUrl,
+              serverPath: r.serverPath,
+            });
           }
         }
       } catch {
@@ -133,10 +151,19 @@ export function Workspace() {
       }
 
       await runPool(newPhotos.map((p) => () => processPhoto(p.id, prompt)), concurrency);
+      const processedIds = new Set(newPhotos.map((p) => p.id));
+      const processedPhotos = useAppStore
+        .getState()
+        .photos.filter((p) => processedIds.has(p.id));
+      try {
+        await saveHistory(processedPhotos);
+      } catch {
+        toast.error("Processed images saved, but history did not update.");
+      }
 
       toast.success(`${newPhotos.length} image${newPhotos.length > 1 ? "s" : ""} processed`);
     },
-    [addPhotos, updatePhotoLabel, processPhoto, snapshotSettings, getActivePrompt, folder, concurrency]
+    [addPhotos, updatePhotoUpload, processPhoto, snapshotSettings, getActivePrompt, folder, concurrency]
   );
 
   const handleRedo = useCallback(
@@ -148,6 +175,12 @@ export function Workspace() {
       }
       resetSinglePhoto(photoId);
       await processPhoto(photoId, prompt);
+      const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
+      try {
+        if (photo) await saveHistory([photo]);
+      } catch {
+        toast.error("Redo finished, but history did not update.");
+      }
     },
     [resetSinglePhoto, processPhoto, getActivePrompt]
   );
@@ -161,6 +194,12 @@ export function Workspace() {
       }
       resetSinglePhoto(photoId);
       await processPhoto(photoId, prompt, feedback);
+      const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
+      try {
+        if (photo) await saveHistory([photo]);
+      } catch {
+        toast.error("Regenerate finished, but history did not update.");
+      }
     },
     [resetSinglePhoto, processPhoto, getActivePrompt]
   );
