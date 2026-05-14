@@ -49,6 +49,25 @@ export async function getImageHistoryItem(id: string): Promise<ImageHistoryItem 
   return data.items.find((item) => item.id === id) ?? null;
 }
 
+export async function updateImageHistoryItem(
+  id: string,
+  patch: Partial<Pick<
+    ImageHistoryItem,
+    "resultUrl" | "status" | "error" | "cost" | "usage" | "label" | "batchFolder" | "sourceUrl"
+  >>
+): Promise<void> {
+  const data = await readHistoryData();
+  const item = data.items.find((entry) => entry.id === id);
+  if (!item) return;
+
+  Object.assign(item, {
+    ...patch,
+    updatedAt: Date.now(),
+  });
+
+  await writeHistoryData(data);
+}
+
 export async function upsertSourceImage(input: {
   id: string;
   name: string;
@@ -96,8 +115,9 @@ export async function mergeSourcePhotos(photos: SourcePhoto[]): Promise<void> {
   const now = Date.now();
 
   for (const photo of photos) {
-    const sourceUrl = photo.serverPath ?? photo.previewUrl;
-    if (!sourceUrl) continue;
+    const rawSource = photo.serverPath ?? photo.previewUrl;
+    if (!rawSource || rawSource.startsWith("blob:")) continue;
+    const sourceUrl = blobStorageUrl(rawSource);
 
     const resultUrl = photo.resultUrl ? blobStorageUrl(photo.resultUrl) : null;
     const existing = data.items.find((entry) => entry.id === photo.id);

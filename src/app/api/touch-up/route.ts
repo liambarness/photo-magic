@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai";
 import { saveFile } from "@/lib/file-utils";
 import { getImageHistoryItem } from "@/lib/image-history";
-import { blobServingUrl, readBlob } from "@/lib/blob-utils";
+import { readBlob, blobServingUrl } from "@/lib/blob-utils";
 import { list } from "@vercel/blob";
 
 const MIME: Record<string, string> = {
@@ -39,7 +39,7 @@ export async function POST(request: Request) {
     const source = await resolveSourceImage(sourceUrl, subfolder, photoId);
     if (!source) {
       return NextResponse.json(
-        { error: "Source image not found: no uploaded source URL or Blob history entry was available." },
+        { error: "Source image not found" },
         { status: 404 }
       );
     }
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     const sourceBlob = await readBlob(source.url).catch(() => null);
     if (!sourceBlob) {
       return NextResponse.json(
-        { error: "Source image not found: private Blob read failed." },
+        { error: "Source image not readable" },
         { status: 404 }
       );
     }
@@ -89,7 +89,7 @@ export async function POST(request: Request) {
           inputTokens: usage.input_tokens ?? 0,
           outputTokens: usage.output_tokens ?? 0,
           totalTokens: usage.total_tokens ?? 0,
-      }
+        }
       : null;
 
     return NextResponse.json({

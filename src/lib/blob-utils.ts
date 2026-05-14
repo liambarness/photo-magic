@@ -10,6 +10,7 @@ export async function putBlob(
   const blob = await put(pathname, data, {
     access: BLOB_ACCESS,
     addRandomSuffix: false,
+    allowOverwrite: true,
     contentType: options.contentType,
   });
 
