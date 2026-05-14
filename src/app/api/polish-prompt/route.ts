@@ -1,0 +1,56 @@
+import { NextResponse } from "next/server";
+import { getOpenAIClient } from "@/lib/openai";
+
+const SYSTEM_PROMPT = `You are a prompt writer for an AI product photography tool that uses gpt-image-2.
+Given a product preset, write ONE cohesive image-generation prompt.
+
+Rules:
+- Write a single paragraph, direct and descriptive
+- For "product" shot mode: describe a product-only studio shot, no model or person
+- For "model" shot mode: describe a model wearing or holding the product in a studio setting
+- For model shots, ALWAYS include an instruction to vary model skin tone and appearance naturally across different generations
+- Do NOT specify model gender or body type — those are set at runtime per batch
+- Incorporate the background description and brand rules as constraints
+- Include the user's description naturally
+- Do NOT add details the user did not specify or imply
+- Do NOT use markdown, bullet points, or labels — just a flowing paragraph
+- Keep it under 150 words
+- The prompt should produce consistent, catalog-quality results across many different products of this type`;
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json();
+    const { presetName, shotMode, framing, description, brandRules, background } = body;
+
+    if (!presetName || !shotMode) {
+      return NextResponse.json({ error: "Missing preset info" }, { status: 400 });
+    }
+
+    const lines = [
+      `Product type: "${presetName}"`,
+      `Shot mode: ${shotMode}`,
+    ];
+    if (framing) lines.push(`Framing: ${framing}`);
+    if (description) lines.push(`Description: ${description}`);
+    lines.push(`Background: ${background || "studio background"}`);
+    lines.push(`Brand rules: ${brandRules || "none"}`);
+
+    const openai = getOpenAIClient();
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      max_tokens: 250,
+      temperature: 0.3,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: lines.join("\n") },
+      ],
+    });
+
+    const prompt = response.choices[0]?.message?.content?.trim() ?? "";
+    return NextResponse.json({ prompt });
+  } catch (err) {
+    console.error("Polish prompt error:", err);
+    const msg = err instanceof Error ? err.message : "Failed to polish prompt";
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
+}
