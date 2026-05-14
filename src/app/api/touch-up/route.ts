@@ -27,24 +27,21 @@ function estimateCost(usage: Record<string, unknown> | undefined | null): number
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { folder, photoId, label, prompt, imageSize, imageQuality, outputFormat } = body;
+    const { folder, photoId, label, sourceUrl, prompt, imageSize, imageQuality, outputFormat } = body;
 
     if (!folder || !photoId || !prompt) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
     const subfolder = label ? `${folder}/${label}` : folder;
-    const prefix = `${subfolder}/source_${photoId.slice(0, 8)}`;
-    const blobs = await list({ prefix });
-
-    if (blobs.blobs.length === 0) {
+    const source = await resolveSourceImage(sourceUrl, subfolder, photoId);
+    if (!source) {
       return NextResponse.json({ error: "Source image not found" }, { status: 404 });
     }
 
-    const sourceBlob = blobs.blobs[0];
-    const sourceRes = await fetch(sourceBlob.url);
+    const sourceRes = await fetch(source.url);
     const imageBuffer = Buffer.from(await sourceRes.arrayBuffer());
-    const ext = sourceBlob.pathname.split(".").pop() || "png";
+    const ext = source.ext;
     const imageFile = new File([imageBuffer], `source.${ext}`, {
       type: MIME[ext] || "image/png",
     });
@@ -93,4 +90,28 @@ export async function POST(request: Request) {
     const msg = err instanceof Error ? err.message : "Touch-up failed";
     return NextResponse.json({ error: msg }, { status: 500 });
   }
+}
+
+async function resolveSourceImage(
+  sourceUrl: string | undefined,
+  subfolder: string,
+  photoId: string
+): Promise<{ url: string; ext: string } | null> {
+  if (typeof sourceUrl === "string" && sourceUrl.startsWith("http")) {
+    const pathname = new URL(sourceUrl).pathname;
+    return {
+      url: sourceUrl,
+      ext: pathname.split(".").pop()?.toLowerCase() || "png",
+    };
+  }
+
+  const prefix = `${subfolder}/source_${photoId.slice(0, 8)}`;
+  const blobs = await list({ prefix });
+  const sourceBlob = blobs.blobs[0];
+  if (!sourceBlob) return null;
+
+  return {
+    url: sourceBlob.url,
+    ext: sourceBlob.pathname.split(".").pop()?.toLowerCase() || "png",
+  };
 }

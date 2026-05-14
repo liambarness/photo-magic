@@ -71,12 +71,13 @@ export function Workspace() {
       const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
       const label = photo?.label || "";
       const batchFolder = photo?.batchFolder || folder;
+      const sourceUrl = photo?.serverPath || photo?.previewUrl || "";
 
       try {
         const res = await fetch("/api/touch-up", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ folder: batchFolder, photoId, label, prompt: finalPrompt, imageSize, imageQuality, outputFormat }),
+          body: JSON.stringify({ folder: batchFolder, photoId, label, sourceUrl, prompt: finalPrompt, imageSize, imageQuality, outputFormat }),
           signal: AbortSignal.timeout(timeoutMs),
         });
 
@@ -135,9 +136,18 @@ export function Workspace() {
 
       try {
         const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+        if (!uploadRes.ok) {
+          const err = await uploadRes.text();
+          newPhotos.forEach((p) => setPhotoStatus(p.id, "error", null, err));
+          toast.error("Upload failed");
+          return;
+        }
+
         const uploadData = await uploadRes.json();
+        const uploadedIds = new Set<string>();
         if (uploadData.results) {
           for (const r of uploadData.results) {
+            uploadedIds.add(r.id);
             updatePhotoUpload(r.id, {
               label: r.label || "",
               previewUrl: r.servingUrl,
@@ -145,13 +155,23 @@ export function Workspace() {
             });
           }
         }
+
+        const missingUploads = newPhotos.filter((p) => !uploadedIds.has(p.id));
+        missingUploads.forEach((p) => setPhotoStatus(p.id, "error", null, "Upload did not return a source image"));
       } catch {
+        newPhotos.forEach((p) => setPhotoStatus(p.id, "error", null, "Upload failed"));
         toast.error("Upload failed");
         return;
       }
 
-      await runPool(newPhotos.map((p) => () => processPhoto(p.id, prompt)), concurrency);
-      const processedIds = new Set(newPhotos.map((p) => p.id));
+      const uploadedPhotos = useAppStore
+        .getState()
+        .photos.filter((p) => newPhotos.some((photo) => photo.id === p.id && p.serverPath));
+
+      if (uploadedPhotos.length === 0) return;
+
+      await runPool(uploadedPhotos.map((p) => () => processPhoto(p.id, prompt)), concurrency);
+      const processedIds = new Set(uploadedPhotos.map((p) => p.id));
       const processedPhotos = useAppStore
         .getState()
         .photos.filter((p) => processedIds.has(p.id));
@@ -161,9 +181,9 @@ export function Workspace() {
         toast.error("Processed images saved, but history did not update.");
       }
 
-      toast.success(`${newPhotos.length} image${newPhotos.length > 1 ? "s" : ""} processed`);
+      toast.success(`${uploadedPhotos.length} image${uploadedPhotos.length > 1 ? "s" : ""} processed`);
     },
-    [addPhotos, updatePhotoUpload, processPhoto, snapshotSettings, getActivePrompt, folder, concurrency]
+    [addPhotos, updatePhotoUpload, processPhoto, snapshotSettings, getActivePrompt, folder, concurrency, setPhotoStatus]
   );
 
   const handleRedo = useCallback(
@@ -251,14 +271,19 @@ export function Workspace() {
   return (
     <div
       className="flex-1 flex flex-col overflow-hidden relative"
-      onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+      onDragOver={(e) => {
+        if (!hasPhotos) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
       onDragLeave={(e) => {
+        if (!hasPhotos) return;
         if (e.currentTarget.contains(e.relatedTarget as Node)) return;
         setDragging(false);
       }}
-      onDrop={handleDrop}
+      onDrop={hasPhotos ? handleDrop : undefined}
     >
-      {dragging && (
+      {hasPhotos && dragging && (
         <div className="absolute inset-0 z-50 bg-primary/5 border-2 border-dashed border-primary rounded-lg m-2 flex items-center justify-center pointer-events-none">
           <p className="text-lg font-medium text-primary">Drop images anywhere</p>
         </div>

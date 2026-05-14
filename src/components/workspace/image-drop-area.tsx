@@ -15,6 +15,7 @@ export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
+      e.stopPropagation();
       setDragging(false);
       const files = Array.from(e.dataTransfer.files).filter((f) =>
         f.type.startsWith("image/")
@@ -37,8 +38,8 @@ export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
     return (
       <div className="mx-6 mt-4 shrink-0">
         <div
-          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
+          onDragLeave={(e) => { e.stopPropagation(); setDragging(false); }}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
           className={`border-2 border-dashed rounded-lg px-4 py-2.5 flex items-center gap-3 cursor-pointer transition-colors ${
@@ -59,8 +60,8 @@ export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
     <div className="flex-1 flex items-center justify-center p-8">
       <div className="w-full max-w-md text-center">
         <div
-          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-          onDragLeave={() => setDragging(false)}
+          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
+          onDragLeave={(e) => { e.stopPropagation(); setDragging(false); }}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
           className={`border-2 border-dashed rounded-xl px-8 py-12 cursor-pointer transition-all ${
