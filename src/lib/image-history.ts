@@ -1,5 +1,5 @@
-import { head, put } from "@vercel/blob";
 import type { PhotoSettings, SourcePhoto, TokenUsage } from "@/types";
+import { blobServingUrl, blobStorageUrl, putBlob, readBlobJson } from "@/lib/blob-utils";
 
 const HISTORY_KEY = "data/image-history.json";
 const MAX_HISTORY_ITEMS = 500;
@@ -25,14 +25,8 @@ interface ImageHistoryData {
 }
 
 async function readHistoryData(): Promise<ImageHistoryData> {
-  try {
-    const info = await head(HISTORY_KEY);
-    const res = await fetch(info.url);
-    const data = (await res.json()) as Partial<ImageHistoryData>;
-    return { items: Array.isArray(data.items) ? data.items : [] };
-  } catch {
-    return { items: [] };
-  }
+  const data = await readBlobJson<Partial<ImageHistoryData>>(HISTORY_KEY);
+  return { items: Array.isArray(data?.items) ? data.items : [] };
 }
 
 async function writeHistoryData(data: ImageHistoryData): Promise<void> {
@@ -40,9 +34,7 @@ async function writeHistoryData(data: ImageHistoryData): Promise<void> {
     .sort((a, b) => b.updatedAt - a.updatedAt)
     .slice(0, MAX_HISTORY_ITEMS);
 
-  await put(HISTORY_KEY, JSON.stringify({ items }, null, 2), {
-    access: "public",
-    addRandomSuffix: false,
+  await putBlob(HISTORY_KEY, JSON.stringify({ items }, null, 2), {
     contentType: "application/json",
   });
 }
@@ -107,7 +99,7 @@ export async function mergeSourcePhotos(photos: SourcePhoto[]): Promise<void> {
     const sourceUrl = photo.serverPath ?? photo.previewUrl;
     if (!sourceUrl) continue;
 
-    const resultUrl = photo.resultUrl?.split("?")[0] ?? null;
+    const resultUrl = photo.resultUrl ? blobStorageUrl(photo.resultUrl) : null;
     const existing = data.items.find((entry) => entry.id === photo.id);
 
     if (existing) {
@@ -152,10 +144,10 @@ export function historyItemToSourcePhoto(item: ImageHistoryItem): SourcePhoto {
     name: item.name,
     label: item.label,
     batchFolder: item.batchFolder,
-    previewUrl: item.sourceUrl,
+    previewUrl: blobServingUrl(item.sourceUrl),
     serverPath: item.sourceUrl,
     status: item.status === "processing" ? "pending" : item.status,
-    resultUrl: item.resultUrl,
+    resultUrl: item.resultUrl ? blobServingUrl(item.resultUrl) : null,
     error: item.error,
     usedSettings: item.usedSettings,
     cost: item.cost,

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai";
 import { saveFile } from "@/lib/file-utils";
 import { getImageHistoryItem } from "@/lib/image-history";
+import { blobServingUrl, readBlob } from "@/lib/blob-utils";
 import { list } from "@vercel/blob";
 
 const MIME: Record<string, string> = {
@@ -43,15 +44,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const sourceRes = await fetch(source.url);
-    if (!sourceRes.ok) {
+    const sourceBlob = await readBlob(source.url).catch(() => null);
+    if (!sourceBlob) {
       return NextResponse.json(
-        { error: `Source image not found: Blob fetch returned ${sourceRes.status}.` },
+        { error: "Source image not found: private Blob read failed." },
         { status: 404 }
       );
     }
 
-    const imageBuffer = Buffer.from(await sourceRes.arrayBuffer());
+    const imageBuffer = new Uint8Array(sourceBlob.buffer);
     const ext = source.ext;
     const imageFile = new File([imageBuffer], `source.${ext}`, {
       type: MIME[ext] || "image/png",
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
       : null;
 
     return NextResponse.json({
-      resultUrl: `${resultUrl}?t=${Date.now()}`,
+      resultUrl: `${blobServingUrl(resultUrl)}&t=${Date.now()}`,
       usage: tokenUsage,
       cost,
     });

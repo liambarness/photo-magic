@@ -27,6 +27,13 @@ function batchFolder(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function imageExtension(url: string): string {
+  const source = url.startsWith("/api/blob?")
+    ? new URL(url, window.location.origin).searchParams.get("url") ?? url
+    : url;
+  return source.split("?")[0].split(".").pop() || "png";
+}
+
 async function saveHistory(photos: SourcePhoto[]): Promise<void> {
   if (photos.length === 0) return;
 
@@ -237,7 +244,7 @@ export function Workspace() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        const ext = photo.resultUrl!.split("?")[0].split(".").pop() || "png";
+        const ext = imageExtension(photo.resultUrl!);
         const name = photo.label || photo.id.slice(0, 8);
         a.download = `${name}.${ext}`;
         a.click();

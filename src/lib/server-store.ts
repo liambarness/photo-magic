@@ -1,5 +1,5 @@
-import { head, put } from "@vercel/blob";
 import type { Preset } from "@/types";
+import { putBlob, readBlobJson as readJsonBlob } from "@/lib/blob-utils";
 
 const LEGACY_STORE_KEY = "data/store.json";
 const SETTINGS_KEY = "data/settings.json";
@@ -34,19 +34,11 @@ const DEFAULTS: StoreData = {
 };
 
 async function readBlobJson<T>(key: string): Promise<T | null> {
-  try {
-    const info = await head(key);
-    const res = await fetch(info.url);
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
+  return readJsonBlob<T>(key);
 }
 
 async function writeBlobJson(key: string, data: unknown): Promise<void> {
-  await put(key, JSON.stringify(data, null, 2), {
-    access: "public",
-    addRandomSuffix: false,
+  await putBlob(key, JSON.stringify(data, null, 2), {
     contentType: "application/json",
   });
 }

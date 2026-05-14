@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai";
 import { saveFile } from "@/lib/file-utils";
 import { upsertSourceImage } from "@/lib/image-history";
+import { blobServingUrl } from "@/lib/blob-utils";
 import type { PhotoSettings } from "@/types";
 
 async function classifyImage(
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
         id,
         label,
         serverPath: blobUrl,
-        servingUrl: blobUrl,
+        servingUrl: blobServingUrl(blobUrl),
       });
     }
 
