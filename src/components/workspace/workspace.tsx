@@ -28,11 +28,11 @@ import {
   validateUploadTotal,
 } from "@/lib/validation";
 import {
-  MODEL_PROFILE_AUTO_ID,
   assignModelProfilesToGroups,
   inferViewType,
   productGroupLabel,
 } from "@/lib/model-shot";
+import { useModelProfileStore } from "@/stores/use-model-profile-store";
 import type {
   ActivePresetConfig,
   ModelPoseType,
@@ -243,7 +243,7 @@ function settingsToActiveConfig(settings: PhotoSettings): ActivePresetConfig {
     modelBuild: settings.modelBuild ?? "varied",
     modelWearerType: settings.modelWearerType ?? "mens",
     modelPoseType: settings.modelPoseType ?? "upper_face_visible",
-    modelProfileId: settings.modelProfileId ?? MODEL_PROFILE_AUTO_ID,
+    modelProfileId: settings.modelProfileId ?? "",
     touchUpStrength: settings.touchUpStrength ?? "standard",
     touchUpBackground: settings.touchUpBackground ?? "standard_gray",
   };
@@ -277,6 +277,7 @@ export function Workspace() {
   const setSortOrder = useAppStore((s) => s.setWorkspaceSortOrder);
   const setVisibleCount = useAppStore((s) => s.setWorkspaceVisibleCount);
   const presets = usePresetStore((s) => s.presets);
+  const allModelProfiles = useModelProfileStore((s) => s.profiles);
   const activePresetName = usePresetStore((s) =>
     activePresetId ? s.presets.find((p) => p.id === activePresetId)?.name ?? null : null
   );
@@ -499,7 +500,7 @@ export function Workspace() {
               modelBuild: "varied",
               modelWearerType: "mens" as ModelWearerType,
               modelPoseType: "upper_face_visible" as ModelPoseType,
-              modelProfileId: MODEL_PROFILE_AUTO_ID as ModelProfileSelection,
+              modelProfileId: "" as ModelProfileSelection,
               touchUpStrength: "standard" as TouchUpStrength,
               touchUpBackground: "standard_gray" as TouchUpBackground,
             };
@@ -685,16 +686,20 @@ export function Workspace() {
       }));
     }
 
+    const selectedProfileId = reviewSettings.modelProfileId ?? "";
+    if (!selectedProfileId) return null;
+
     const groupIds = Array.from(new Set(reviewItems.map((item) => item.productGroupId)));
-    const wearerType = reviewSettings.modelWearerType ?? "mens";
     const assignments = assignModelProfilesToGroups(
       groupIds,
-      wearerType,
-      reviewSettings.modelProfileId ?? MODEL_PROFILE_AUTO_ID
+      selectedProfileId,
+      allModelProfiles
     );
 
-    return reviewItems.map((item) => {
+    const resolved: ResolvedUploadItem[] = [];
+    for (const item of reviewItems) {
       const profile = assignments[item.productGroupId];
+      if (!profile) continue;
       const itemSettings: PhotoSettings = {
         ...reviewSettings,
         modelProfileId: profile.id,
@@ -709,18 +714,20 @@ export function Workspace() {
           productGroupId: item.productGroupId,
           productGroupLabel: itemSettings.productGroupLabel,
           viewType: item.viewType,
+          allProfiles: allModelProfiles,
         }) ?? reviewPrompt;
 
-      return {
+      resolved.push({
         ...item,
         prompt: itemPrompt,
         settings: {
           ...itemSettings,
           finalPrompt: itemPrompt,
         },
-      };
-    });
-  }, [presets, reviewItems, reviewPresetId, reviewPrompt, reviewSettings]);
+      });
+    }
+    return resolved;
+  }, [allModelProfiles, presets, reviewItems, reviewPresetId, reviewPrompt, reviewSettings]);
 
   const approveReview = useCallback(() => {
     if (!reviewSettings || !reviewPrompt || !reviewPresetId || reviewItems.length === 0) {
@@ -1226,6 +1233,7 @@ export function Workspace() {
         presets={presets}
         selectedPresetId={reviewPresetId}
         additionalParameters={reviewAdditionalParameters}
+        allModelProfiles={allModelProfiles}
         onPresetChange={handleReviewPresetChange}
         onAdditionalParametersChange={handleReviewAdditionalParametersChange}
         onProductGroupChange={updateReviewItemGroup}

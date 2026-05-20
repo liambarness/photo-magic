@@ -25,7 +25,7 @@ import { Check, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { uploadLimitSummary } from "@/lib/validation";
 import {
-  MODEL_PROFILE_AUTO_ID,
+  type ModelProfile,
   assignModelProfilesToGroups,
   getModelPoseOption,
   getModelProfile,
@@ -56,6 +56,7 @@ interface UploadReviewDialogProps {
   presets: Preset[];
   selectedPresetId: string | null;
   additionalParameters: string;
+  allModelProfiles: ModelProfile[];
   onPresetChange: (presetId: string) => void;
   onAdditionalParametersChange: (value: string) => void;
   onProductGroupChange: (itemId: string, groupId: string) => void;
@@ -137,6 +138,7 @@ export function UploadReviewDialog({
   presets,
   selectedPresetId,
   additionalParameters,
+  allModelProfiles,
   onPresetChange,
   onAdditionalParametersChange,
   onProductGroupChange,
@@ -168,24 +170,25 @@ export function UploadReviewDialog({
   );
   const modelGroups = useMemo(() => {
     if (settings?.shotMode !== "model") return [];
+    const selectedProfileId = settings.modelProfileId ?? "";
+    if (!selectedProfileId) return [];
     const groupIds = Array.from(new Set(items.map((item) => item.productGroupId))).sort(sortGroupIds);
-    const wearerType = settings.modelWearerType ?? "mens";
     const assignments = assignModelProfilesToGroups(
       groupIds,
-      wearerType,
-      settings.modelProfileId ?? MODEL_PROFILE_AUTO_ID
+      selectedProfileId,
+      allModelProfiles
     );
     return groupIds.map((groupId) => ({
       groupId,
       groupLabel: productGroupLabel(groupId),
       profile: assignments[groupId],
       items: items.filter((item) => item.productGroupId === groupId),
-    }));
-  }, [items, settings]);
+    })).filter((group) => group.profile);
+  }, [allModelProfiles, items, settings]);
   const groupingMode = detectGroupingMode(items);
   const wearer = getModelWearerOption(settings?.modelWearerType);
   const pose = getModelPoseOption(settings?.modelPoseType);
-  const pinnedModel = getModelProfile(settings?.modelProfileId);
+  const pinnedModel = getModelProfile(settings?.modelProfileId, allModelProfiles);
   const touchUpStrength = getTouchUpStrengthOption(settings?.touchUpStrength);
 
   return (
@@ -358,8 +361,14 @@ export function UploadReviewDialog({
                       </div>
                       <div className="col-span-2 space-y-0.5">
                         <span className="text-muted-foreground">Model</span>
-                        <p>{pinnedModel?.name ?? "Auto rotate by product group"}</p>
+                        <p>{pinnedModel?.name ?? "None selected"}</p>
                       </div>
+                      {pinnedModel?.styling && (
+                        <div className="col-span-2 space-y-0.5">
+                          <span className="text-muted-foreground">Styling</span>
+                          <p className="text-[11px] leading-relaxed">{pinnedModel.styling}</p>
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-3 rounded-md border bg-background/70 p-3">
                       <div className="space-y-1">

@@ -27,7 +27,7 @@ export const DEFAULT_ACTIVE_PRESET: ActivePresetConfig = {
   modelBuild: "varied",
   modelWearerType: "mens",
   modelPoseType: "upper_face_visible",
-  modelProfileId: "auto",
+  modelProfileId: "",
   touchUpStrength: "standard",
   touchUpBackground: "standard_gray",
 };

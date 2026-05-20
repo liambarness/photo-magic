@@ -1,5 +1,6 @@
 import type { ActivePresetConfig, ModelViewType, Preset } from "@/types";
 import {
+  type ModelProfile,
   getModelPoseOption,
   getModelProfile,
   getModelWearerOption,
@@ -16,6 +17,7 @@ interface FinalPromptOptions {
   productGroupId?: string;
   productGroupLabel?: string;
   viewType?: string;
+  allProfiles?: ModelProfile[];
 }
 
 const MODEL_RUNTIME_PHRASES = [
@@ -69,7 +71,10 @@ export function buildFinalPrompt(
   if (preset.shotMode === "model") {
     const wearer = getModelWearerOption(activePreset.modelWearerType);
     const pose = getModelPoseOption(activePreset.modelPoseType);
-    const modelProfile = getModelProfile(options.modelProfileId ?? activePreset.modelProfileId);
+    const modelProfile = getModelProfile(
+      options.modelProfileId ?? activePreset.modelProfileId,
+      options.allProfiles
+    );
     const groupLabel =
       options.productGroupLabel ??
       (options.productGroupId ? productGroupLabel(options.productGroupId) : "");
@@ -88,9 +93,14 @@ export function buildFinalPrompt(
       parts.push(
         `Use selected model profile "${modelProfile.name}": ${modelProfile.prompt}. Keep this same model identity consistent for every image in ${groupLabel || "the same product group"}.`
       );
+      if (modelProfile.styling) {
+        parts.push(
+          `Styling constraint (apply to ALL framing variants for this model): ${modelProfile.styling}. Keep this styling identical across every pose/angle/crop of this product group.`
+        );
+      }
     } else {
       parts.push(
-        "Use a natural catalog model appearance selected from the approved model roster for this wearer type."
+        "A model profile must be selected before generating model shots."
       );
     }
     if (groupLabel || view) {
@@ -99,16 +109,8 @@ export function buildFinalPrompt(
       );
     }
     parts.push(
-      "The wearer type and framing above are the authoritative shot settings for this generation; ignore any older preset wording that conflicts with them."
+      "The wearer type, framing, and styling above are the authoritative shot settings for this generation; ignore any older preset wording that conflicts with them."
     );
-
-    const gender = activePreset.modelGender || "varied";
-    const build = activePreset.modelBuild || "varied";
-    if (gender !== "varied" || build !== "varied") {
-      parts.push(
-        `Legacy model preference: ${gender !== "varied" ? `gender ${gender}` : ""}${gender !== "varied" && build !== "varied" ? ", " : ""}${build !== "varied" ? `build ${build}` : ""}.`
-      );
-    }
   }
 
   if (preset.shotMode === "touchup") {

@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useSettingsStore } from "@/stores/use-settings-store";
 import { usePresetStore } from "@/stores/use-preset-store";
+import { useModelProfileStore } from "@/stores/use-model-profile-store";
 import { useAppStore, loadUIState } from "@/stores/use-app-store";
 
 const VALID_STATUS = new Set(["done", "all", "pending", "processing", "error"]);
@@ -14,6 +15,7 @@ export function StoreLoader() {
   const pathname = usePathname();
   const loadSettings = useSettingsStore((s) => s.load);
   const loadPresets = usePresetStore((s) => s.load);
+  const loadModelProfiles = useModelProfileStore((s) => s.load);
   const loadHistory = useAppStore((s) => s.loadHistory);
   const selectPreset = useAppStore((s) => s.selectPreset);
 
@@ -23,7 +25,7 @@ export function StoreLoader() {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    Promise.all([loadSettings(), loadPresets()]).finally(() => {
+    Promise.all([loadSettings(), loadPresets(), loadModelProfiles()]).finally(() => {
       if (cancelled) return;
 
       const saved = loadUIState();
@@ -55,7 +57,7 @@ export function StoreLoader() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [pathname, loadSettings, loadPresets, loadHistory, selectPreset]);
+  }, [pathname, loadSettings, loadPresets, loadModelProfiles, loadHistory, selectPreset]);
 
   return null;
 }

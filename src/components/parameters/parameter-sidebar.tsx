@@ -25,16 +25,17 @@ import {
 import { Copy, Maximize2, Save, X } from "lucide-react";
 import { PresetSelector } from "./preset-selector";
 import { PresetEditorDialog } from "./preset-editor-dialog";
+import { ModelProfileEditor } from "./model-profile-editor";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   MODEL_POSE_OPTIONS,
-  MODEL_PROFILE_AUTO_ID,
   MODEL_WEARER_OPTIONS,
   getModelPoseOption,
   getModelWearerOption,
   modelProfilesForWearer,
 } from "@/lib/model-shot";
+import { useModelProfileStore } from "@/stores/use-model-profile-store";
 import {
   TOUCH_UP_STRENGTH_OPTIONS,
   getTouchUpStrengthOption,
@@ -98,6 +99,9 @@ export function ParameterSidebar() {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [promptDialogOpen, setPromptDialogOpen] = useState(false);
+  const [profileEditorOpen, setProfileEditorOpen] = useState(false);
+  const [profileEditId, setProfileEditId] = useState<string | null>(null);
+  const allModelProfiles = useModelProfileStore((s) => s.profiles);
 
   const handleNew = () => {
     setEditId(null);
@@ -111,11 +115,9 @@ export function ParameterSidebar() {
 
   const wearer = getModelWearerOption(activePreset.modelWearerType);
   const pose = getModelPoseOption(activePreset.modelPoseType);
-  const modelProfiles = modelProfilesForWearer(wearer.value);
+  const modelProfiles = modelProfilesForWearer(wearer.value, allModelProfiles);
   const selectedModelProfile =
-    activePreset.modelProfileId === MODEL_PROFILE_AUTO_ID
-      ? null
-      : modelProfiles.find((profile) => profile.id === activePreset.modelProfileId) ?? null;
+    modelProfiles.find((profile) => profile.id === activePreset.modelProfileId) ?? null;
   const touchUpStrength = getTouchUpStrengthOption(activePreset.touchUpStrength);
   const finalPrompt = getActivePrompt() ?? "";
   const promptWordCount = finalPrompt ? finalPrompt.trim().split(/\s+/).length : 0;
@@ -205,22 +207,21 @@ export function ParameterSidebar() {
                       Model
                     </label>
                     <span className="text-[11px] text-muted-foreground/60">
-                      {selectedModelProfile?.name ?? "Auto rotate"}
+                      {selectedModelProfile?.name ?? "None selected"}
                     </span>
                   </div>
                   <Select
-                    value={activePreset.modelProfileId || MODEL_PROFILE_AUTO_ID}
+                    value={activePreset.modelProfileId || ""}
                     onValueChange={(value) =>
                       updateModelShotOption("modelProfileId", value as ModelProfileSelection)
                     }
                   >
                     <SelectTrigger className="h-9 w-full text-sm">
-                      <SelectValue>
-                        {selectedModelProfile?.name ?? "Auto rotate by product group"}
+                      <SelectValue placeholder="Select a model...">
+                        {selectedModelProfile?.name ?? "Select a model..."}
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent align="start" alignItemWithTrigger={false} className="min-w-64">
-                      <SelectItem value={MODEL_PROFILE_AUTO_ID}>Auto rotate by product group</SelectItem>
                       {modelProfiles.map((profile) => (
                         <SelectItem key={profile.id} value={profile.id}>
                           {profile.name}
@@ -228,9 +229,44 @@ export function ParameterSidebar() {
                       ))}
                     </SelectContent>
                   </Select>
-                  <p className="text-[11px] leading-relaxed text-muted-foreground/60">
-                    Auto assigns one stable model per product group during upload review.
-                  </p>
+                  {!selectedModelProfile && (
+                    <p className="text-[11px] text-destructive">
+                      Select a model profile to generate model shots.
+                    </p>
+                  )}
+                  {selectedModelProfile?.styling && (
+                    <p className="text-[11px] leading-relaxed text-muted-foreground/60">
+                      Styling: {selectedModelProfile.styling}
+                    </p>
+                  )}
+                  <div className="flex gap-1.5">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 flex-1 text-xs"
+                      onClick={() => {
+                        setProfileEditId(null);
+                        setProfileEditorOpen(true);
+                      }}
+                    >
+                      + New Model
+                    </Button>
+                    {selectedModelProfile && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-7 flex-1 text-xs"
+                        onClick={() => {
+                          setProfileEditId(selectedModelProfile.id);
+                          setProfileEditorOpen(true);
+                        }}
+                      >
+                        Edit Model
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
             )}
@@ -368,6 +404,12 @@ export function ParameterSidebar() {
         open={editorOpen}
         onOpenChange={setEditorOpen}
         editId={editId}
+      />
+
+      <ModelProfileEditor
+        open={profileEditorOpen}
+        onOpenChange={setProfileEditorOpen}
+        editId={profileEditId}
       />
 
       <Dialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen}>

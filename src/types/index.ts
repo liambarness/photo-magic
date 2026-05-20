@@ -12,7 +12,7 @@ export type ModelPoseType =
   | "upper_no_face"
   | "lower_no_face";
 export type ModelViewType = "front" | "back" | "side" | "detail" | "unknown";
-export type ModelProfileSelection = "auto" | string;
+export type ModelProfileSelection = string;
 export type TouchUpStrength = "light" | "standard" | "deep";
 export type TouchUpBackground = "standard_gray" | "preserve";
 

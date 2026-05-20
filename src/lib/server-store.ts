@@ -1,9 +1,11 @@
 import type { Preset } from "@/types";
+import type { ModelProfile } from "@/lib/model-shot";
 import { putBlob, readBlobJson as readJsonBlob } from "@/lib/blob-utils";
 
 const LEGACY_STORE_KEY = "data/store.json";
 const SETTINGS_KEY = "data/settings.json";
 const PRESETS_KEY = "data/presets.json";
+const MODEL_PROFILES_KEY = "data/model-profiles.json";
 
 interface SettingsData {
   brandRules: string;
@@ -180,6 +182,54 @@ export async function deletePreset(id: string): Promise<Preset[]> {
     const next = presets.filter((p) => p.id !== id);
     await writeBlobJson(PRESETS_KEY, next);
     return cachePresets(next);
+  });
+}
+
+let modelProfilesCache: { value: ModelProfile[]; expiresAt: number } | null = null;
+
+function cacheModelProfiles(profiles: ModelProfile[]): ModelProfile[] {
+  modelProfilesCache = { value: profiles, expiresAt: Date.now() + CACHE_TTL_MS };
+  return profiles;
+}
+
+export async function getModelProfiles(): Promise<ModelProfile[]> {
+  if (modelProfilesCache && modelProfilesCache.expiresAt > Date.now()) {
+    return modelProfilesCache.value;
+  }
+
+  const profiles = await readBlobJson<ModelProfile[]>(MODEL_PROFILES_KEY);
+  return cacheModelProfiles(profiles ?? []);
+}
+
+export async function saveModelProfile(profile: ModelProfile): Promise<ModelProfile[]> {
+  return withStoreLock(async () => {
+    const profiles = await getModelProfiles();
+    const next = [...profiles.filter((p) => p.id !== profile.id), profile];
+    await writeBlobJson(MODEL_PROFILES_KEY, next);
+    return cacheModelProfiles(next);
+  });
+}
+
+export async function updateModelProfile(
+  id: string,
+  patch: Partial<Omit<ModelProfile, "id" | "createdAt">>
+): Promise<ModelProfile[]> {
+  return withStoreLock(async () => {
+    const profiles = await getModelProfiles();
+    const next = profiles.map((p) =>
+      p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p
+    );
+    await writeBlobJson(MODEL_PROFILES_KEY, next);
+    return cacheModelProfiles(next);
+  });
+}
+
+export async function deleteModelProfile(id: string): Promise<ModelProfile[]> {
+  return withStoreLock(async () => {
+    const profiles = await getModelProfiles();
+    const next = profiles.filter((p) => p.id !== id);
+    await writeBlobJson(MODEL_PROFILES_KEY, next);
+    return cacheModelProfiles(next);
   });
 }
 
