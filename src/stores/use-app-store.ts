@@ -3,7 +3,12 @@
 import { create } from "zustand";
 import type { SourcePhoto, ActivePresetConfig, PhotoSettings, TokenUsage } from "@/types";
 import { DEFAULT_ACTIVE_PRESET } from "@/lib/constants";
+import { buildFinalPrompt } from "@/lib/final-prompt";
 import { usePresetStore } from "./use-preset-store";
+
+type WorkspaceStatusFilter = "done" | "all" | Exclude<SourcePhoto["status"], "done">;
+type WorkspaceVisibilityFilter = "active" | "archived" | "all";
+type WorkspaceSortOrder = "newest" | "oldest";
 
 interface AppState {
   activePreset: ActivePresetConfig;
@@ -11,11 +16,21 @@ interface AppState {
   photos: SourcePhoto[];
   selectedIds: string[];
   _historyLoaded: boolean;
+  workspaceResetVersion: number;
+  workspaceStatusFilter: WorkspaceStatusFilter;
+  workspaceVisibilityFilter: WorkspaceVisibilityFilter;
+  workspaceSortOrder: WorkspaceSortOrder;
+  workspaceVisibleCount: number;
 
   selectPreset: (presetId: string) => void;
   clearPreset: () => void;
+  goHome: () => void;
   updateNotes: (notes: string) => void;
   updateModelOption: (key: "modelGender" | "modelBuild", value: string) => void;
+  setWorkspaceStatusFilter: (value: WorkspaceStatusFilter) => void;
+  setWorkspaceVisibilityFilter: (value: WorkspaceVisibilityFilter) => void;
+  setWorkspaceSortOrder: (value: WorkspaceSortOrder) => void;
+  setWorkspaceVisibleCount: (value: number | ((current: number) => number)) => void;
 
   snapshotSettings: () => PhotoSettings;
   getActivePrompt: () => string | null;
@@ -32,9 +47,12 @@ interface AppState {
     usage?: TokenUsage | null
   ) => void;
   resetSinglePhoto: (photoId: string) => void;
+  setPhotoVisibility: (photoIds: string[], visibility: SourcePhoto["visibility"]) => void;
+  removePhotos: (photoIds: string[]) => void;
   clearPhotos: () => void;
 
   toggleSelect: (id: string) => void;
+  selectIds: (ids: string[]) => void;
   selectAll: () => void;
   clearSelection: () => void;
 }
@@ -45,6 +63,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   photos: [],
   selectedIds: [],
   _historyLoaded: false,
+  workspaceResetVersion: 0,
+  workspaceStatusFilter: "done",
+  workspaceVisibilityFilter: "active",
+  workspaceSortOrder: "newest",
+  workspaceVisibleCount: 24,
 
   selectPreset: (presetId) => {
     set({ activePreset: { presetId, notes: "", modelGender: "varied", modelBuild: "varied" } });
@@ -52,6 +75,37 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   clearPreset: () => {
     set({ activePreset: { ...DEFAULT_ACTIVE_PRESET } });
+  },
+
+  goHome: () => {
+    set((s) => ({
+      activePreset: { ...DEFAULT_ACTIVE_PRESET },
+      selectedIds: [],
+      workspaceStatusFilter: "done",
+      workspaceVisibilityFilter: "active",
+      workspaceSortOrder: "newest",
+      workspaceVisibleCount: 24,
+      workspaceResetVersion: s.workspaceResetVersion + 1,
+    }));
+  },
+
+  setWorkspaceStatusFilter: (value) => {
+    set({ workspaceStatusFilter: value, workspaceVisibleCount: 24 });
+  },
+
+  setWorkspaceVisibilityFilter: (value) => {
+    set({ workspaceVisibilityFilter: value, workspaceVisibleCount: 24 });
+  },
+
+  setWorkspaceSortOrder: (value) => {
+    set({ workspaceSortOrder: value, workspaceVisibleCount: 24 });
+  },
+
+  setWorkspaceVisibleCount: (value) => {
+    set((s) => ({
+      workspaceVisibleCount:
+        typeof value === "function" ? value(s.workspaceVisibleCount) : value,
+    }));
   },
 
   updateNotes: (notes) => {
@@ -70,26 +124,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activePreset } = get();
     if (!activePreset.presetId) return null;
     const preset = usePresetStore.getState().getPreset(activePreset.presetId);
-    if (!preset?.polishedPrompt) return null;
-
-    let prompt = preset.polishedPrompt;
-
-    if (preset.shotMode === "model") {
-      const gender = activePreset.modelGender || "varied";
-      const build = activePreset.modelBuild || "varied";
-      if (gender !== "varied") {
-        prompt += ` Use a ${gender} model.`;
-      }
-      if (build !== "varied") {
-        prompt += ` Model should have a ${build} build.`;
-      }
-    }
-
-    const notes = activePreset.notes.trim();
-    if (notes) {
-      prompt += ` IMPORTANT additional notes: ${notes}.`;
-    }
-    return prompt;
+    return buildFinalPrompt(preset, activePreset);
   },
 
   snapshotSettings: () => {
@@ -97,10 +132,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const preset = activePreset.presetId
       ? usePresetStore.getState().getPreset(activePreset.presetId)
       : null;
+    const notes = activePreset.notes.trim();
     return {
       presetId: activePreset.presetId,
       presetName: preset?.name ?? "None",
       shotMode: preset?.shotMode ?? "product",
+      modelGender: preset?.shotMode === "model" ? activePreset.modelGender || "varied" : undefined,
+      modelBuild: preset?.shotMode === "model" ? activePreset.modelBuild || "varied" : undefined,
+      notes: notes || undefined,
+      finalPrompt: buildFinalPrompt(preset, activePreset),
     };
   },
 
@@ -114,7 +154,10 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (!res.ok) throw new Error("History load failed");
       const data = (await res.json()) as { photos?: SourcePhoto[] };
       if (!Array.isArray(data.photos)) throw new Error("Invalid history response");
-      const loadedPhotos = data.photos;
+      const loadedPhotos = data.photos.map((photo) => ({
+        ...photo,
+        visibility: photo.visibility ?? "active",
+      }));
       set((s) => {
         const existingIds = new Set(s.photos.map((p) => p.id));
         const history = loadedPhotos.filter((p) => !existingIds.has(p.id));
@@ -145,6 +188,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               error: error ?? null,
               cost: p.cost + (cost ?? 0),
               usage: usage ?? p.usage,
+              updatedAt: Date.now(),
             }
           : p
       ),
@@ -155,9 +199,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       photos: s.photos.map((p) =>
         p.id === photoId
-          ? { ...p, status: "pending" as const, resultUrl: null, error: null }
+          ? { ...p, status: "pending" as const, resultUrl: null, error: null, updatedAt: Date.now() }
           : p
       ),
+    }));
+  },
+
+  setPhotoVisibility: (photoIds, visibility) => {
+    const ids = new Set(photoIds);
+    set((s) => ({
+      photos: s.photos.map((p) => (ids.has(p.id) ? { ...p, visibility, updatedAt: Date.now() } : p)),
+      selectedIds: s.selectedIds.filter((id) => !ids.has(id)),
+    }));
+  },
+
+  removePhotos: (photoIds) => {
+    const ids = new Set(photoIds);
+    set((s) => ({
+      photos: s.photos.filter((p) => !ids.has(p.id)),
+      selectedIds: s.selectedIds.filter((id) => !ids.has(id)),
     }));
   },
 
@@ -171,9 +231,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  selectIds: (ids) => {
+    set({ selectedIds: ids });
+  },
+
   selectAll: () => {
     set((s) => ({
-      selectedIds: s.photos.filter((p) => p.status === "done").map((p) => p.id),
+      selectedIds: s.photos.filter((p) => p.status === "done" && p.visibility !== "archived").map((p) => p.id),
     }));
   },
 

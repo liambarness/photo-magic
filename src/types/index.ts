@@ -26,6 +26,10 @@ export interface PhotoSettings {
   presetId: string | null;
   presetName: string;
   shotMode: "product" | "model";
+  modelGender?: string;
+  modelBuild?: string;
+  notes?: string;
+  finalPrompt?: string | null;
 }
 
 export interface SourcePhoto {
@@ -39,6 +43,7 @@ export interface SourcePhoto {
   resultUrl: string | null;
   error: string | null;
   usedSettings: PhotoSettings;
+  visibility: "active" | "archived";
   cost: number;
   usage: TokenUsage | null;
   createdAt?: number;

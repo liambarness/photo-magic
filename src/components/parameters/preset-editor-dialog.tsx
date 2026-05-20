@@ -130,19 +130,23 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
 
   const handleDelete = () => {
     if (!editId) return;
+    const confirmed = window.confirm(
+      `Delete preset "${existing?.name ?? "this preset"}"? Existing generated images will remain, but this preset cannot be restored.`
+    );
+    if (!confirmed) return;
     if (activePresetId === editId) clearPreset();
     deletePreset(editId);
     onOpenChange(false);
   };
 
   return (
-    <DialogContent className="max-h-[85vh] overflow-y-auto p-6 sm:max-w-md">
-      <DialogHeader>
-        <DialogTitle>{editId ? "Edit Preset" : "Create Preset"}</DialogTitle>
+    <DialogContent className="max-h-[90vh] overflow-hidden p-0 sm:max-w-2xl lg:max-w-3xl">
+      <DialogHeader className="border-b px-7 pt-6 pb-4">
+        <DialogTitle className="text-lg">{editId ? "Edit Preset" : "Create Preset"}</DialogTitle>
       </DialogHeader>
 
-      <div className="mt-2 space-y-5">
-        <div className="space-y-1.5">
+      <div className="space-y-6 overflow-y-auto px-7 py-6">
+        <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="preset-name">
             Product Type
           </label>
@@ -151,11 +155,11 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Trucker Hat, Boardshorts, Candle, Surfboard..."
-            className="text-sm"
+            className="h-10 text-base"
           />
         </div>
 
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <label className="text-sm font-medium">Shot Type</label>
           <div className="flex w-fit overflow-hidden rounded-lg border">
             {SHOT_MODE_OPTIONS.map((opt) => (
@@ -163,7 +167,7 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
                 key={opt.value}
                 type="button"
                 onClick={() => setShotMode(opt.value)}
-                className={`px-4 py-1.5 text-sm transition-colors ${
+                className={`px-5 py-2 text-sm transition-colors ${
                   shotMode === opt.value
                     ? "bg-primary text-primary-foreground"
                     : "hover:bg-muted"
@@ -181,7 +185,7 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
         </div>
 
         {shotMode === "model" && (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <label className="text-sm font-medium">Framing</label>
             <div className="flex w-fit flex-wrap overflow-hidden rounded-lg border">
               {FRAMING_OPTIONS.map((opt) => (
@@ -189,7 +193,7 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
                   key={opt.value}
                   type="button"
                   onClick={() => setFraming(opt.value)}
-                  className={`px-3 py-1.5 text-sm transition-colors ${
+                  className={`px-4 py-2 text-sm transition-colors ${
                     framing === opt.value
                       ? "bg-primary text-primary-foreground"
                       : "hover:bg-muted"
@@ -202,11 +206,11 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
           </div>
         )}
 
-        <div className="space-y-1.5">
+        <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="preset-description">
             Description
           </label>
-          <div className="space-y-1 rounded-md bg-muted/30 p-2.5 text-[11px] text-muted-foreground/70">
+          <div className="space-y-1 rounded-md bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground/70">
             <p className="font-medium text-muted-foreground">Already handled by the system:</p>
             <ul className="list-disc space-y-0.5 pl-3.5">
               <li>Light grey studio background (#EBEBEB)</li>
@@ -227,12 +231,12 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="e.g. casual standing pose, show print detail, hat slightly angled to show front logo..."
-            className="min-h-24 resize-y text-sm"
+            className="min-h-36 resize-y text-base leading-relaxed"
           />
         </div>
       </div>
 
-      <DialogFooter className="mt-4">
+      <DialogFooter className="mx-0 mb-0 rounded-none px-7 py-4">
         {editId && (
           <Button
             variant="ghost"

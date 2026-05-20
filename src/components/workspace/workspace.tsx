@@ -1,17 +1,32 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "@/stores/use-app-store";
+import { usePresetStore } from "@/stores/use-preset-store";
 import { ImageDropArea } from "./image-drop-area";
 import { ImageResultCard } from "./image-result-card";
+import { UploadReviewDialog, type PendingUploadItem } from "./upload-review-dialog";
 import { Button } from "@/components/ui/button";
-import { Download, CheckSquare, X } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Download, CheckSquare, X, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSettingsStore } from "@/stores/use-settings-store";
-import type { SourcePhoto } from "@/types";
+import { buildFinalPrompt } from "@/lib/final-prompt";
+import { MAX_UPLOAD_FILES, validateImageFile } from "@/lib/validation";
+import type { PhotoSettings, SourcePhoto } from "@/types";
 
 const INITIAL_VISIBLE_RESULTS = 24;
 const VISIBLE_RESULTS_STEP = 24;
+
+type StatusFilter = "done" | "all" | Exclude<SourcePhoto["status"], "done">;
+type VisibilityFilter = "active" | "archived" | "all";
+type SortOrder = "newest" | "oldest";
 
 async function runPool<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
   const results: T[] = [];
@@ -48,11 +63,42 @@ async function saveHistory(photos: SourcePhoto[]): Promise<void> {
   if (!res.ok) throw new Error("History save failed");
 }
 
-function revokeLocalPreviews(photos: SourcePhoto[]) {
+function revokeLocalPreviews(photos: SourcePhoto[] | PendingUploadItem[]) {
   photos.forEach((photo) => {
-    if (photo.previewUrl.startsWith("blob:")) {
-      URL.revokeObjectURL(photo.previewUrl);
+    const previewUrl = "previewUrl" in photo ? photo.previewUrl : "";
+    if (previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(previewUrl);
     }
+  });
+}
+
+function normalizeFiles(files: File[]): File[] {
+  const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+  if (imageFiles.length === 0) return [];
+
+  for (const file of imageFiles) {
+    const error = validateImageFile(file);
+    if (error) {
+      toast.error(error);
+      return [];
+    }
+  }
+
+  return imageFiles;
+}
+
+function imageReadyKey(photo: SourcePhoto): string {
+  return `${photo.id}:${photo.resultUrl ?? ""}:${photo.previewUrl}`;
+}
+
+function preloadBrowserImage(url: string): Promise<void> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.decoding = "async";
+    image.onload = () => resolve();
+    image.onerror = () => resolve();
+    image.src = url;
+    if (image.complete) resolve();
   });
 }
 
@@ -61,9 +107,10 @@ export function Workspace() {
   const addPhotos = useAppStore((s) => s.addPhotos);
   const updatePhotoUpload = useAppStore((s) => s.updatePhotoUpload);
   const getActivePrompt = useAppStore((s) => s.getActivePrompt);
-  const snapshotSettings = useAppStore((s) => s.snapshotSettings);
   const setPhotoStatus = useAppStore((s) => s.setPhotoStatus);
   const resetSinglePhoto = useAppStore((s) => s.resetSinglePhoto);
+  const setPhotoVisibility = useAppStore((s) => s.setPhotoVisibility);
+  const removePhotos = useAppStore((s) => s.removePhotos);
   const concurrency = useSettingsStore((s) => s.concurrency);
   const imageSize = useSettingsStore((s) => s.imageSize);
   const imageQuality = useSettingsStore((s) => s.imageQuality);
@@ -71,13 +118,34 @@ export function Workspace() {
   const timeoutMs = useSettingsStore((s) => s.timeoutSeconds) * 1000;
   const selectedIds = useAppStore((s) => s.selectedIds);
   const historyLoaded = useAppStore((s) => s._historyLoaded);
+  const activePreset = useAppStore((s) => s.activePreset);
+  const activePresetId = useAppStore((s) => s.activePreset.presetId);
+  const workspaceResetVersion = useAppStore((s) => s.workspaceResetVersion);
+  const statusFilter = useAppStore((s) => s.workspaceStatusFilter);
+  const visibilityFilter = useAppStore((s) => s.workspaceVisibilityFilter);
+  const sortOrder = useAppStore((s) => s.workspaceSortOrder);
+  const visibleCount = useAppStore((s) => s.workspaceVisibleCount);
+  const setStatusFilter = useAppStore((s) => s.setWorkspaceStatusFilter);
+  const setVisibilityFilter = useAppStore((s) => s.setWorkspaceVisibilityFilter);
+  const setSortOrder = useAppStore((s) => s.setWorkspaceSortOrder);
+  const setVisibleCount = useAppStore((s) => s.setWorkspaceVisibleCount);
+  const presets = usePresetStore((s) => s.presets);
+  const activePresetName = usePresetStore((s) =>
+    activePresetId ? s.presets.find((p) => p.id === activePresetId)?.name ?? null : null
+  );
   const toggleSelect = useAppStore((s) => s.toggleSelect);
-  const selectAll = useAppStore((s) => s.selectAll);
+  const selectIds = useAppStore((s) => s.selectIds);
   const clearSelection = useAppStore((s) => s.clearSelection);
 
   const [dragging, setDragging] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_RESULTS);
-  const folder = batchFolder();
+  const [reviewItems, setReviewItems] = useState<PendingUploadItem[]>([]);
+  const [reviewPresetId, setReviewPresetId] = useState<string | null>(null);
+  const [reviewSettings, setReviewSettings] = useState<PhotoSettings | null>(null);
+  const [reviewPrompt, setReviewPrompt] = useState("");
+  const [reviewAdditionalParameters, setReviewAdditionalParameters] = useState("");
+  const [readyImageKeys, setReadyImageKeys] = useState<Set<string>>(() => new Set());
+  const preloadingImageKeys = useRef(new Set<string>());
+  const resultsScrollRef = useRef<HTMLDivElement>(null);
 
   const processPhoto = useCallback(
     async (photoId: string, prompt: string, extraFeedback?: string) => {
@@ -90,14 +158,23 @@ export function Workspace() {
 
       const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
       const label = photo?.label || "";
-      const batchFolder = photo?.batchFolder || folder;
+      const photoBatchFolder = photo?.batchFolder || batchFolder();
       const sourceUrl = photo?.serverPath || photo?.previewUrl || "";
 
       try {
         const res = await fetch("/api/touch-up", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ folder: batchFolder, photoId, label, sourceUrl, prompt: finalPrompt, imageSize, imageQuality, outputFormat }),
+          body: JSON.stringify({
+            folder: photoBatchFolder,
+            photoId,
+            label,
+            sourceUrl,
+            prompt: finalPrompt,
+            imageSize,
+            imageQuality,
+            outputFormat,
+          }),
           signal: AbortSignal.timeout(timeoutMs),
         });
 
@@ -114,32 +191,32 @@ export function Workspace() {
         setPhotoStatus(photoId, "error", null, msg);
       }
     },
-    [setPhotoStatus, folder, imageSize, imageQuality, outputFormat, timeoutMs]
+    [setPhotoStatus, imageSize, imageQuality, outputFormat, timeoutMs]
   );
 
-  const handleFiles = useCallback(
-    async (files: File[]) => {
-      const prompt = getActivePrompt();
-      if (!prompt) {
-        toast.error("Select a preset first.");
-        return;
-      }
+  const uploadAndProcess = useCallback(
+    async (items: PendingUploadItem[], settings: PhotoSettings, prompt: string) => {
+      const folder = batchFolder();
+      const now = Date.now();
+      setStatusFilter("all");
+      setVisibleCount(INITIAL_VISIBLE_RESULTS);
 
-      const settings = snapshotSettings();
-
-      const newPhotos: SourcePhoto[] = files.map((f) => ({
-        id: crypto.randomUUID(),
-        name: f.name,
+      const newPhotos: SourcePhoto[] = items.map((item) => ({
+        id: item.id,
+        name: item.file.name,
         label: "",
         batchFolder: folder,
-        previewUrl: URL.createObjectURL(f),
+        previewUrl: item.previewUrl,
         serverPath: null,
         status: "pending" as const,
         resultUrl: null,
         error: null,
         usedSettings: settings,
+        visibility: "active",
         cost: 0,
         usage: null,
+        createdAt: now,
+        updatedAt: now,
       }));
 
       addPhotos(newPhotos);
@@ -149,9 +226,9 @@ export function Workspace() {
       formData.append("product", settings.presetName);
       formData.append("shotType", settings.shotMode);
       formData.append("settings", JSON.stringify(settings));
-      files.forEach((f, i) => {
-        formData.append("files", f);
-        formData.append("ids", newPhotos[i].id);
+      items.forEach((item) => {
+        formData.append("files", item.file);
+        formData.append("ids", item.id);
       });
 
       try {
@@ -159,7 +236,6 @@ export function Workspace() {
         if (!uploadRes.ok) {
           const err = await uploadRes.text();
           newPhotos.forEach((p) => setPhotoStatus(p.id, "error", null, err));
-          revokeLocalPreviews(newPhotos);
           toast.error("Upload failed");
           return;
         }
@@ -183,7 +259,6 @@ export function Workspace() {
         missingUploads.forEach((p) => setPhotoStatus(p.id, "error", null, "Upload did not return a source image"));
       } catch {
         newPhotos.forEach((p) => setPhotoStatus(p.id, "error", null, "Upload failed"));
-        revokeLocalPreviews(newPhotos);
         toast.error("Upload failed");
         return;
       }
@@ -207,21 +282,186 @@ export function Workspace() {
 
       toast.success(`${uploadedPhotos.length} image${uploadedPhotos.length > 1 ? "s" : ""} processed`);
     },
-    [addPhotos, updatePhotoUpload, processPhoto, snapshotSettings, getActivePrompt, folder, concurrency, setPhotoStatus]
+    [addPhotos, updatePhotoUpload, processPhoto, concurrency, setPhotoStatus, setStatusFilter, setVisibleCount]
   );
+
+  const buildReviewSettingsForPreset = useCallback(
+    (presetId: string, additionalParameters?: string): { settings: PhotoSettings; prompt: string } | null => {
+      const preset = presets.find((p) => p.id === presetId);
+      if (!preset) return null;
+
+      const baseConfig =
+        activePreset.presetId === presetId
+          ? activePreset
+          : { presetId, notes: "", modelGender: "varied", modelBuild: "varied" };
+      const config = {
+        ...baseConfig,
+        notes: additionalParameters ?? baseConfig.notes,
+      };
+      const prompt = buildFinalPrompt(preset, config);
+      if (!prompt) return null;
+
+      const notes = config.notes.trim();
+      return {
+        prompt,
+        settings: {
+          presetId,
+          presetName: preset.name,
+          shotMode: preset.shotMode,
+          modelGender: preset.shotMode === "model" ? config.modelGender || "varied" : undefined,
+          modelBuild: preset.shotMode === "model" ? config.modelBuild || "varied" : undefined,
+          notes: notes || undefined,
+          finalPrompt: prompt,
+        },
+      };
+    },
+    [activePreset, presets]
+  );
+
+  const handleReviewPresetChange = useCallback(
+    (presetId: string) => {
+      const next = buildReviewSettingsForPreset(presetId, reviewAdditionalParameters);
+      setReviewPresetId(presetId);
+      if (!next) {
+        setReviewSettings(null);
+        setReviewPrompt("");
+        toast.error("That preset needs to be saved again before it can process images.");
+        return;
+      }
+
+      setReviewSettings(next.settings);
+      setReviewPrompt(next.prompt);
+    },
+    [buildReviewSettingsForPreset, reviewAdditionalParameters]
+  );
+
+  const handleReviewAdditionalParametersChange = useCallback(
+    (value: string) => {
+      setReviewAdditionalParameters(value);
+      if (!reviewPresetId) return;
+
+      const next = buildReviewSettingsForPreset(reviewPresetId, value);
+      if (!next) {
+        setReviewSettings(null);
+        setReviewPrompt("");
+        return;
+      }
+
+      setReviewSettings(next.settings);
+      setReviewPrompt(next.prompt);
+    },
+    [buildReviewSettingsForPreset, reviewPresetId]
+  );
+
+  const stageFiles = useCallback(
+    (files: File[]) => {
+      const imageFiles = normalizeFiles(files);
+      if (imageFiles.length === 0) {
+        toast.error("No supported images found.");
+        return;
+      }
+
+      const existingCount = reviewItems.length;
+      if (existingCount + imageFiles.length > MAX_UPLOAD_FILES) {
+        toast.error(`Review up to ${MAX_UPLOAD_FILES} images at a time.`);
+        return;
+      }
+
+      const activeReviewPresetId = reviewPresetId ?? activePresetId;
+      const additionalParameters =
+        reviewItems.length > 0
+          ? reviewAdditionalParameters
+          : activeReviewPresetId === activePresetId
+            ? activePreset.notes
+            : "";
+      const reviewPreset = activeReviewPresetId
+        ? buildReviewSettingsForPreset(activeReviewPresetId, additionalParameters)
+        : null;
+      const prompt = reviewPrompt || reviewPreset?.prompt || "";
+      const settings = reviewSettings ?? reviewPreset?.settings ?? null;
+
+      const nextItems = imageFiles.map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file),
+      }));
+
+      setReviewPresetId(activeReviewPresetId ?? null);
+      setReviewAdditionalParameters(additionalParameters);
+      setReviewPrompt(prompt);
+      setReviewSettings(settings);
+      setReviewItems((current) => [...current, ...nextItems]);
+    },
+    [
+      activePresetId,
+      activePreset.notes,
+      buildReviewSettingsForPreset,
+      reviewItems.length,
+      reviewAdditionalParameters,
+      reviewPresetId,
+      reviewPrompt,
+      reviewSettings,
+    ]
+  );
+
+  const cancelReview = useCallback(() => {
+    revokeLocalPreviews(reviewItems);
+    setReviewItems([]);
+    setReviewPresetId(null);
+    setReviewSettings(null);
+    setReviewPrompt("");
+    setReviewAdditionalParameters("");
+  }, [reviewItems]);
+
+  const removeReviewItem = useCallback(
+    (itemId: string) => {
+      const item = reviewItems.find((reviewItem) => reviewItem.id === itemId);
+      if (!item) return;
+
+      revokeLocalPreviews([item]);
+      const nextItems = reviewItems.filter((reviewItem) => reviewItem.id !== itemId);
+      setReviewItems(nextItems);
+
+      if (nextItems.length === 0) {
+        setReviewPresetId(null);
+        setReviewSettings(null);
+        setReviewPrompt("");
+        setReviewAdditionalParameters("");
+      }
+    },
+    [reviewItems]
+  );
+
+  const approveReview = useCallback(() => {
+    if (!reviewSettings || !reviewPrompt || !reviewPresetId || reviewItems.length === 0) {
+      toast.error("Choose a preset before approving.");
+      return;
+    }
+    const items = reviewItems;
+    const settings = reviewSettings;
+    const prompt = reviewPrompt;
+
+    setReviewItems([]);
+    setReviewPresetId(null);
+    setReviewSettings(null);
+    setReviewPrompt("");
+    setReviewAdditionalParameters("");
+    void uploadAndProcess(items, settings, prompt);
+  }, [reviewItems, reviewPresetId, reviewPrompt, reviewSettings, uploadAndProcess]);
 
   const handleRedo = useCallback(
     async (photoId: string) => {
-      const prompt = getActivePrompt();
+      const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
+      const prompt = photo?.usedSettings.finalPrompt || getActivePrompt();
       if (!prompt) {
         toast.error("No prompt available. Select a preset first.");
         return;
       }
       resetSinglePhoto(photoId);
       await processPhoto(photoId, prompt);
-      const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
+      const updatedPhoto = useAppStore.getState().photos.find((p) => p.id === photoId);
       try {
-        if (photo) await saveHistory([photo]);
+        if (updatedPhoto) await saveHistory([updatedPhoto]);
       } catch {
         toast.error("Redo finished, but history did not update.");
       }
@@ -231,16 +471,17 @@ export function Workspace() {
 
   const handleRegenerate = useCallback(
     async (photoId: string, feedback: string) => {
-      const prompt = getActivePrompt();
+      const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
+      const prompt = photo?.usedSettings.finalPrompt || getActivePrompt();
       if (!prompt) {
         toast.error("No prompt available. Select a preset first.");
         return;
       }
       resetSinglePhoto(photoId);
       await processPhoto(photoId, prompt, feedback);
-      const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
+      const updatedPhoto = useAppStore.getState().photos.find((p) => p.id === photoId);
       try {
-        if (photo) await saveHistory([photo]);
+        if (updatedPhoto) await saveHistory([updatedPhoto]);
       } catch {
         toast.error("Regenerate finished, but history did not update.");
       }
@@ -248,9 +489,88 @@ export function Workspace() {
     [resetSinglePhoto, processPhoto, getActivePrompt]
   );
 
+  const filteredPhotos = useMemo(() => {
+    const matchesPreset = (photo: SourcePhoto) => {
+      if (!activePresetId) return true;
+      if (photo.usedSettings.presetId === activePresetId) return true;
+      return Boolean(
+        !photo.usedSettings.presetId &&
+          activePresetName &&
+          photo.usedSettings.presetName === activePresetName
+      );
+    };
+
+    return photos
+      .filter((photo) => matchesPreset(photo))
+      .filter((photo) => {
+        if (visibilityFilter === "all") return true;
+        return photo.visibility === visibilityFilter;
+      })
+      .filter((photo) => statusFilter === "all" || photo.status === statusFilter)
+      .sort((a, b) => {
+        const aTime = a.updatedAt ?? a.createdAt ?? 0;
+        const bTime = b.updatedAt ?? b.createdAt ?? 0;
+        return sortOrder === "newest" ? bTime - aTime : aTime - bTime;
+      });
+  }, [photos, activePresetId, activePresetName, visibilityFilter, statusFilter, sortOrder]);
+
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files ?? []);
+      const images = files.filter((file) => file.type.startsWith("image/"));
+      if (images.length === 0) return;
+
+      e.preventDefault();
+      stageFiles(images);
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [stageFiles]);
+
+  const visiblePhotos = useMemo(
+    () => filteredPhotos.slice(0, visibleCount),
+    [filteredPhotos, visibleCount]
+  );
+
+  useEffect(() => {
+    for (const photo of visiblePhotos) {
+      if (photo.status !== "done" || !photo.resultUrl) continue;
+
+      const key = imageReadyKey(photo);
+      if (readyImageKeys.has(key) || preloadingImageKeys.current.has(key)) continue;
+
+      preloadingImageKeys.current.add(key);
+      void Promise.all([
+        preloadBrowserImage(photo.resultUrl),
+        preloadBrowserImage(photo.previewUrl),
+      ]).then(() => {
+        preloadingImageKeys.current.delete(key);
+        setReadyImageKeys((current) => {
+          if (current.has(key)) return current;
+          const next = new Set(current);
+          next.add(key);
+          return next;
+        });
+      });
+    }
+  }, [readyImageKeys, visiblePhotos]);
+
+  const visiblePhotoIds = useMemo(() => new Set(filteredPhotos.map((p) => p.id)), [filteredPhotos]);
+  const visibleSelectedIds = useMemo(
+    () => selectedIds.filter((id) => visiblePhotoIds.has(id)),
+    [selectedIds, visiblePhotoIds]
+  );
+  const selectedSet = useMemo(() => new Set(visibleSelectedIds), [visibleSelectedIds]);
+
+  useEffect(() => {
+    resultsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  }, [workspaceResetVersion]);
+
   const handleExport = useCallback(async () => {
-    const toExport = photos.filter(
-      (p) => selectedIds.includes(p.id) && p.status === "done" && p.resultUrl
+    const selectedVisible = new Set(visibleSelectedIds);
+    const toExport = filteredPhotos.filter(
+      (p) => selectedVisible.has(p.id) && p.status === "done" && p.resultUrl
     );
     if (toExport.length === 0) return;
 
@@ -273,34 +593,82 @@ export function Workspace() {
 
     toast.success(`${toExport.length} image${toExport.length > 1 ? "s" : ""} exported`);
     clearSelection();
-  }, [photos, selectedIds, clearSelection]);
+  }, [filteredPhotos, visibleSelectedIds, clearSelection]);
+
+  const handleSetVisibility = useCallback(
+    async (ids: string[], visibility: SourcePhoto["visibility"]) => {
+      if (ids.length === 0) return;
+      try {
+        const res = await fetch("/api/history", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "visibility", ids, visibility }),
+        });
+        if (!res.ok) throw new Error("Visibility update failed");
+        setPhotoVisibility(ids, visibility);
+        toast.success(
+          visibility === "archived"
+            ? `${ids.length} image${ids.length > 1 ? "s" : ""} archived`
+            : `${ids.length} image${ids.length > 1 ? "s" : ""} restored`
+        );
+      } catch {
+        toast.error("Image visibility could not be updated.");
+      }
+    },
+    [setPhotoVisibility]
+  );
+
+  const handleDeletePhotos = useCallback(
+    async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const confirmed = window.confirm(
+        `Permanently delete ${ids.length} image${ids.length > 1 ? "s" : ""} and stored files? This cannot be undone.`
+      );
+      if (!confirmed) return;
+
+      const deletedPhotos = useAppStore.getState().photos.filter((photo) => ids.includes(photo.id));
+      try {
+        const res = await fetch("/api/history", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        });
+        if (!res.ok) throw new Error("Delete failed");
+        revokeLocalPreviews(deletedPhotos);
+        removePhotos(ids);
+        toast.success(`${ids.length} image${ids.length > 1 ? "s" : ""} deleted`);
+      } catch {
+        toast.error("Images could not be deleted.");
+      }
+    },
+    [removePhotos]
+  );
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       setDragging(false);
-      const files = Array.from(e.dataTransfer.files).filter((f) =>
-        f.type.startsWith("image/")
-      );
-      if (files.length) handleFiles(files);
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length) stageFiles(files);
     },
-    [handleFiles]
+    [stageFiles]
   );
 
   const hasPhotos = photos.length > 0;
-  const doneCount = photos.filter((p) => p.status === "done").length;
-  const selectedCount = selectedIds.length;
-  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const visiblePhotos = useMemo(
-    () => photos.slice(0, visibleCount),
-    [photos, visibleCount]
-  );
-  const totalCost = photos.reduce((sum, p) => sum + p.cost, 0);
-  const hiddenCount = Math.max(0, photos.length - visiblePhotos.length);
+  const doneCount = filteredPhotos.filter((p) => p.status === "done").length;
+  const selectedCount = visibleSelectedIds.length;
+  const totalCost = filteredPhotos.reduce((sum, p) => sum + p.cost, 0);
+  const hiddenCount = Math.max(0, filteredPhotos.length - visiblePhotos.length);
+  const activeFilterLabel = activePresetName ?? "all products";
+  const statusFilterLabel =
+    statusFilter === "all" ? "All status" : statusFilter === "done" ? "Completed" : statusFilter.slice(0, 1).toUpperCase() + statusFilter.slice(1);
+  const visibilityFilterLabel =
+    visibilityFilter === "all" ? "All" : visibilityFilter.slice(0, 1).toUpperCase() + visibilityFilter.slice(1);
+  const sortOrderLabel = sortOrder === "newest" ? "Newest" : "Oldest";
 
   return (
     <div
-      className="flex-1 flex flex-col overflow-hidden relative"
+      className="relative flex flex-1 flex-col overflow-hidden"
       onDragOver={(e) => {
         if (!hasPhotos) return;
         e.preventDefault();
@@ -314,14 +682,14 @@ export function Workspace() {
       onDrop={hasPhotos ? handleDrop : undefined}
     >
       {hasPhotos && dragging && (
-        <div className="absolute inset-0 z-50 bg-primary/5 border-2 border-dashed border-primary rounded-lg m-2 flex items-center justify-center pointer-events-none">
-          <p className="text-lg font-medium text-primary">Drop images anywhere</p>
+        <div className="pointer-events-none absolute inset-0 z-50 m-2 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/5">
+          <p className="text-lg font-medium text-primary">Drop images to review</p>
         </div>
       )}
 
       {!hasPhotos && (
         <div className="flex flex-1 flex-col">
-          <ImageDropArea onFiles={handleFiles} compact={false} />
+          <ImageDropArea onFiles={stageFiles} compact={false} />
           {!historyLoaded && (
             <p className="pb-6 text-center text-xs text-muted-foreground">
               Loading recent work...
@@ -332,92 +700,208 @@ export function Workspace() {
 
       {hasPhotos && (
         <>
-          <ImageDropArea onFiles={handleFiles} compact />
-
-          <div className="mx-4 mt-3 flex flex-col gap-2 sm:mx-6 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
-              {selectedCount > 0 ? (
-                <>
-                  <span className="text-xs text-muted-foreground">
-                    {selectedCount} selected
+          <div className="shrink-0 border-b bg-background/95 px-4 py-3 sm:px-6">
+            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+              <p className="min-w-0 truncate text-xs text-muted-foreground">
+                {selectedCount > 0
+                  ? `${selectedCount} selected`
+                  : `${filteredPhotos.length} result${filteredPhotos.length !== 1 ? "s" : ""} for ${activeFilterLabel}${hiddenCount > 0 ? ` - showing ${visiblePhotos.length}` : ""}`}
+                {totalCost > 0 && (
+                  <span className="text-muted-foreground/60">
+                    {" "}
+                    - ${totalCost.toFixed(3)}
                   </span>
+                )}
+              </p>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={statusFilter}
+                  onValueChange={(value) => {
+                    setStatusFilter(value as StatusFilter);
+                    setVisibleCount(INITIAL_VISIBLE_RESULTS);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[120px] text-xs">
+                    <SelectValue>{statusFilterLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All status</SelectItem>
+                    <SelectItem value="done">Completed</SelectItem>
+                    <SelectItem value="processing">Processing</SelectItem>
+                    <SelectItem value="pending">Queued</SelectItem>
+                    <SelectItem value="error">Error</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={visibilityFilter}
+                  onValueChange={(value) => {
+                    setVisibilityFilter(value as VisibilityFilter);
+                    setVisibleCount(INITIAL_VISIBLE_RESULTS);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[112px] text-xs">
+                    <SelectValue>{visibilityFilterLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="archived">Archived</SelectItem>
+                    <SelectItem value="all">All</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={sortOrder}
+                  onValueChange={(value) => {
+                    setSortOrder(value as SortOrder);
+                    setVisibleCount(INITIAL_VISIBLE_RESULTS);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[104px] text-xs">
+                    <SelectValue>{sortOrderLabel}</SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="newest">Newest</SelectItem>
+                    <SelectItem value="oldest">Oldest</SelectItem>
+                  </SelectContent>
+                </Select>
+                {selectedCount > 0 && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={clearSelection}
+                    >
+                      <X className="mr-1 h-3 w-3" />
+                      Clear
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs"
+                      onClick={() =>
+                        handleSetVisibility(
+                          visibleSelectedIds,
+                          visibilityFilter === "archived" ? "active" : "archived"
+                        )
+                      }
+                    >
+                      {visibilityFilter === "archived" ? (
+                        <ArchiveRestore className="mr-1 h-3 w-3" />
+                      ) : (
+                        <Archive className="mr-1 h-3 w-3" />
+                      )}
+                      {visibilityFilter === "archived" ? "Restore" : "Archive"}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 text-xs text-destructive hover:text-destructive"
+                      onClick={() => handleDeletePhotos(visibleSelectedIds)}
+                    >
+                      <Trash2 className="mr-1 h-3 w-3" />
+                      Delete
+                    </Button>
+                  </>
+                )}
+                {doneCount > 0 && (
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 text-xs"
-                    onClick={clearSelection}
+                    className="h-8 text-xs"
+                    onClick={() =>
+                      selectIds(visiblePhotos.filter((p) => p.status === "done").map((p) => p.id))
+                    }
                   >
-                    <X className="h-3 w-3 mr-1" />
-                    Clear
+                    <CheckSquare className="mr-1 h-3 w-3" />
+                    Select Visible
                   </Button>
-                </>
-              ) : (
-                <span className="text-xs text-muted-foreground">
-                  {photos.length} result{photos.length !== 1 ? "s" : ""}
-                  {hiddenCount > 0 && ` - showing ${visiblePhotos.length}`}
-                </span>
-              )}
-              {totalCost > 0 && (
-                <span className="text-xs text-muted-foreground/60">
-                  · ${totalCost.toFixed(3)}
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              {doneCount > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={selectAll}
-                >
-                  <CheckSquare className="h-3 w-3 mr-1" />
-                  Select All
-                </Button>
-              )}
-              {selectedCount > 0 && (
-                <Button
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={handleExport}
-                >
-                  <Download className="h-3 w-3 mr-1" />
-                  Export ({selectedCount})
-                </Button>
-              )}
+                )}
+                {selectedCount > 0 && (
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs"
+                    onClick={handleExport}
+                  >
+                    <Download className="mr-1 h-3 w-3" />
+                    Export ({selectedCount})
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 pt-3 sm:p-6 sm:pt-3">
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-4">
-              {visiblePhotos.map((photo) => (
-                <ImageResultCard
-                  key={photo.id}
-                  photo={photo}
-                  selected={selectedSet.has(photo.id)}
-                  onSelect={() => toggleSelect(photo.id)}
-                  onRedo={() => handleRedo(photo.id)}
-                  onRegenerate={(fb) => handleRegenerate(photo.id, fb)}
-                />
-              ))}
-            </div>
-            {hiddenCount > 0 && (
-              <div className="flex justify-center pt-5">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setVisibleCount((count) => count + VISIBLE_RESULTS_STEP)
-                  }
-                >
-                  Load {Math.min(VISIBLE_RESULTS_STEP, hiddenCount)} more
-                </Button>
+          <div
+            ref={resultsScrollRef}
+            className="flex-1 overflow-y-auto p-4 pb-24 pt-4 sm:p-6 sm:pb-24 sm:pt-4"
+          >
+            {filteredPhotos.length === 0 ? (
+              <div className="flex min-h-60 flex-col items-center justify-center gap-3 text-center">
+                <p className="text-sm font-medium">No images match these filters</p>
+                <p className="max-w-sm text-xs text-muted-foreground">
+                  The grid follows the preset dropdown and active image filters.
+                </p>
               </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-4">
+                  {visiblePhotos.map((photo) => (
+                    <ImageResultCard
+                      key={photo.id}
+                      photo={photo}
+                      selected={selectedSet.has(photo.id)}
+                      imageReady={
+                        photo.status !== "done" ||
+                        !photo.resultUrl ||
+                        readyImageKeys.has(imageReadyKey(photo))
+                      }
+                      onSelect={() => toggleSelect(photo.id)}
+                      onRedo={() => handleRedo(photo.id)}
+                      onRegenerate={(fb) => handleRegenerate(photo.id, fb)}
+                      onArchive={() => handleSetVisibility([photo.id], "archived")}
+                      onRestore={() => handleSetVisibility([photo.id], "active")}
+                      onDelete={() => handleDeletePhotos([photo.id])}
+                    />
+                  ))}
+                </div>
+                {hiddenCount > 0 && (
+                  <div className="flex justify-center pt-5">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setVisibleCount((count) => count + VISIBLE_RESULTS_STEP)
+                      }
+                    >
+                      Load {Math.min(VISIBLE_RESULTS_STEP, hiddenCount)} more
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
+          </div>
+          <div className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4 sm:bottom-5">
+            <ImageDropArea onFiles={stageFiles} compact />
           </div>
         </>
       )}
+
+      <UploadReviewDialog
+        open={reviewItems.length > 0}
+        items={reviewItems}
+        settings={reviewSettings}
+        prompt={reviewPrompt}
+        processingSettings={{ imageSize, imageQuality, outputFormat, concurrency }}
+        presets={presets}
+        selectedPresetId={reviewPresetId}
+        additionalParameters={reviewAdditionalParameters}
+        onPresetChange={handleReviewPresetChange}
+        onAdditionalParametersChange={handleReviewAdditionalParametersChange}
+        onAddFiles={stageFiles}
+        onRemoveItem={removeReviewItem}
+        onApprove={approveReview}
+        onCancel={cancelReview}
+      />
     </div>
   );
 }

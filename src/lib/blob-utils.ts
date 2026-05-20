@@ -1,4 +1,4 @@
-import { get, put } from "@vercel/blob";
+import { del, get, put } from "@vercel/blob";
 
 export const BLOB_ACCESS = "private" as const;
 
@@ -52,4 +52,18 @@ export function blobStorageUrl(urlOrServingUrl: string): string {
 
   const url = new URL(urlOrServingUrl, "http://local");
   return url.searchParams.get("url") ?? urlOrServingUrl;
+}
+
+export async function deleteBlobs(urls: Array<string | null | undefined>): Promise<void> {
+  const storageUrls = Array.from(
+    new Set(
+      urls
+        .filter((url): url is string => Boolean(url))
+        .map((url) => blobStorageUrl(url))
+        .filter((url) => url.startsWith("http"))
+    )
+  );
+
+  if (storageUrls.length === 0) return;
+  await del(storageUrls);
 }
