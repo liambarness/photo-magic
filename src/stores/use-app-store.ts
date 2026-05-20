@@ -77,22 +77,38 @@ interface AppState {
   clearSelection: () => void;
 }
 
-let notesSyncTimer: ReturnType<typeof setTimeout> | null = null;
+const UI_STATE_KEY = "pm:ui-state";
 
-function flushNotesToPreset(getState: () => AppState) {
-  if (notesSyncTimer) clearTimeout(notesSyncTimer);
-  notesSyncTimer = null;
+interface PersistedUIState {
+  presetId: string | null;
+  statusFilter: string | null;
+  visibilityFilter: string | null;
+  sortOrder: string | null;
+}
+
+function saveUIState(patch: Partial<PersistedUIState>) {
+  try {
+    const raw = localStorage.getItem(UI_STATE_KEY);
+    const current: PersistedUIState = raw ? JSON.parse(raw) : { presetId: null, statusFilter: null, visibilityFilter: null, sortOrder: null };
+    localStorage.setItem(UI_STATE_KEY, JSON.stringify({ ...current, ...patch }));
+  } catch {}
+}
+
+export function loadUIState(): PersistedUIState {
+  try {
+    const raw = localStorage.getItem(UI_STATE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return { presetId: null, statusFilter: null, visibilityFilter: null, sortOrder: null };
+}
+
+function saveNotesToPreset(getState: () => AppState) {
   const { activePreset } = getState();
   if (!activePreset.presetId) return;
   const notes = activePreset.notes.trim();
   usePresetStore.getState().updatePreset(activePreset.presetId, {
     notes: notes || undefined,
   });
-}
-
-function debouncedSyncNotes(getState: () => AppState) {
-  if (notesSyncTimer) clearTimeout(notesSyncTimer);
-  notesSyncTimer = setTimeout(() => flushNotesToPreset(getState), 800);
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -116,10 +132,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         notes: preset?.notes ?? "",
       },
     });
+    saveUIState({ presetId });
   },
 
   clearPreset: () => {
     set({ activePreset: { ...DEFAULT_ACTIVE_PRESET } });
+    saveUIState({ presetId: null });
   },
 
   goHome: () => {
@@ -132,18 +150,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       workspaceVisibleCount: 24,
       workspaceResetVersion: s.workspaceResetVersion + 1,
     }));
+    saveUIState({ presetId: null, statusFilter: "done", visibilityFilter: "active", sortOrder: "newest" });
   },
 
   setWorkspaceStatusFilter: (value) => {
     set({ workspaceStatusFilter: value, workspaceVisibleCount: 24 });
+    saveUIState({ statusFilter: value });
   },
 
   setWorkspaceVisibilityFilter: (value) => {
     set({ workspaceVisibilityFilter: value, workspaceVisibleCount: 24 });
+    saveUIState({ visibilityFilter: value });
   },
 
   setWorkspaceSortOrder: (value) => {
     set({ workspaceSortOrder: value, workspaceVisibleCount: 24 });
+    saveUIState({ sortOrder: value });
   },
 
   setWorkspaceVisibleCount: (value) => {
@@ -157,11 +179,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       activePreset: { ...s.activePreset, notes },
     }));
-    debouncedSyncNotes(get);
   },
 
   saveNotes: () => {
-    flushNotesToPreset(get);
+    saveNotesToPreset(get);
   },
 
   updateModelOption: (key: "modelGender" | "modelBuild", value: string) => {
@@ -250,9 +271,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((s) => {
         const existingIds = new Set(s.photos.map((p) => p.id));
         const history = loadedPhotos.filter((p) => !existingIds.has(p.id));
+        const allPhotos = [...history, ...s.photos];
+        const hasInFlight = allPhotos.some(
+          (p) => p.status === "pending" || p.status === "processing"
+        );
+        if (hasInFlight) saveUIState({ statusFilter: "all" });
         return {
-          photos: [...history, ...s.photos],
+          photos: allPhotos,
           _historyLoaded: true,
+          workspaceStatusFilter: hasInFlight ? "all" : s.workspaceStatusFilter,
         };
       });
     } catch {

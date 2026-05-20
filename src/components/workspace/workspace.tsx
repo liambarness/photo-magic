@@ -346,7 +346,7 @@ export function Workspace() {
     async (items: ResolvedUploadItem[], settings: PhotoSettings) => {
       const folder = batchFolder();
       const now = Date.now();
-      setStatusFilter("all");
+      useAppStore.setState({ workspaceStatusFilter: "all" });
       setVisibleCount(INITIAL_VISIBLE_RESULTS);
 
       const newPhotos: SourcePhoto[] = items.map((item) => ({
@@ -481,7 +481,7 @@ export function Workspace() {
 
       toast.success(`${uploadedPhotos.length} image${uploadedPhotos.length > 1 ? "s" : ""} processed`);
     },
-    [addPhotos, updatePhotoUpload, processPhoto, concurrency, setPhotoStatus, setStatusFilter, setVisibleCount]
+    [addPhotos, updatePhotoUpload, processPhoto, concurrency, setPhotoStatus, setVisibleCount]
   );
 
   const buildReviewSettingsForPreset = useCallback(
