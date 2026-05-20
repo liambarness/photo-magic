@@ -30,8 +30,13 @@ export function createPresetShell(name = ""): Preset {
 }
 
 function withSystemPresets(presets: Preset[]): Preset[] {
+  const serverMap = new Map(presets.filter((p) => SYSTEM_PRESET_IDS.has(p.id)).map((p) => [p.id, p]));
+  const merged = SYSTEM_PRESETS.map((sp) => {
+    const stored = serverMap.get(sp.id);
+    return stored?.notes ? { ...sp, notes: stored.notes } : sp;
+  });
   const customPresets = presets.filter((preset) => !SYSTEM_PRESET_IDS.has(preset.id));
-  return [...SYSTEM_PRESETS, ...customPresets];
+  return [...merged, ...customPresets];
 }
 
 export const usePresetStore = create<PresetState>((set, get) => ({
@@ -70,7 +75,8 @@ export const usePresetStore = create<PresetState>((set, get) => ({
   },
 
   updatePreset: async (id, patch) => {
-    if (SYSTEM_PRESET_IDS.has(id)) {
+    const isNotesOnly = Object.keys(patch).every((k) => k === "notes");
+    if (SYSTEM_PRESET_IDS.has(id) && !isNotesOnly) {
       toast.message("Built-in presets cannot be edited. Adjust upload options in the sidebar.");
       return;
     }
