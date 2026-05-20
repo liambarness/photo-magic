@@ -165,9 +165,10 @@ export async function addPreset(preset: Preset): Promise<Preset[]> {
 export async function updatePreset(id: string, patch: Partial<Omit<Preset, "id" | "createdAt">>): Promise<Preset[]> {
   return withStoreLock(async () => {
     const presets = await getPresets();
-    const next = presets.map((p) =>
-      p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p
-    );
+    const found = presets.some((p) => p.id === id);
+    const next = found
+      ? presets.map((p) => (p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p))
+      : [...presets, { id, ...patch, createdAt: Date.now(), updatedAt: Date.now() } as Preset];
     await writeBlobJson(PRESETS_KEY, next);
     return cachePresets(next);
   });
