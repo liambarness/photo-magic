@@ -4,15 +4,28 @@ export interface TokenUsage {
   totalTokens: number;
 }
 
+export type ShotMode = "product" | "model" | "touchup";
+export type ModelWearerType = "mens" | "womens" | "youth" | "toddler";
+export type ModelPoseType =
+  | "full_body"
+  | "upper_face_visible"
+  | "upper_no_face"
+  | "lower_no_face";
+export type ModelViewType = "front" | "back" | "side" | "detail" | "unknown";
+export type ModelProfileSelection = "auto" | string;
+export type TouchUpStrength = "light" | "standard" | "deep";
+export type TouchUpBackground = "standard_gray" | "preserve";
+
 export interface Preset {
   id: string;
   name: string;
-  shotMode: "product" | "model";
+  shotMode: ShotMode;
   framing: string;
   description: string;
   polishedPrompt: string | null;
   createdAt: number;
   updatedAt: number;
+  system?: boolean;
 }
 
 export interface ActivePresetConfig {
@@ -20,14 +33,28 @@ export interface ActivePresetConfig {
   notes: string;
   modelGender: string;
   modelBuild: string;
+  modelWearerType: ModelWearerType;
+  modelPoseType: ModelPoseType;
+  modelProfileId: ModelProfileSelection;
+  touchUpStrength: TouchUpStrength;
+  touchUpBackground: TouchUpBackground;
 }
 
 export interface PhotoSettings {
   presetId: string | null;
   presetName: string;
-  shotMode: "product" | "model";
+  shotMode: ShotMode;
   modelGender?: string;
   modelBuild?: string;
+  modelWearerType?: ModelWearerType;
+  modelPoseType?: ModelPoseType;
+  modelProfileId?: string;
+  modelProfileName?: string;
+  productGroupId?: string;
+  productGroupLabel?: string;
+  viewType?: ModelViewType;
+  touchUpStrength?: TouchUpStrength;
+  touchUpBackground?: TouchUpBackground;
   notes?: string;
   finalPrompt?: string | null;
 }

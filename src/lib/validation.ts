@@ -13,7 +13,28 @@ export const ALLOWED_IMAGE_QUALITIES = new Set(["low", "medium", "high", "auto"]
 export const ALLOWED_OUTPUT_FORMATS = new Set(["png", "jpeg", "webp"]);
 
 export const MAX_UPLOAD_FILES = 50;
-export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
+export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024 - 1;
+export const MAX_UPLOAD_TOTAL_BYTES = 300 * 1024 * 1024;
+
+export function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let unitIndex = 0;
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024;
+    unitIndex += 1;
+  }
+
+  const rounded = unitIndex === 0 ? String(Math.round(value)) : value.toFixed(value >= 10 ? 1 : 2);
+  return `${rounded.replace(/\.0+$/, "")} ${units[unitIndex]}`;
+}
+
+export function uploadLimitSummary(): string {
+  return `PNG, JPG, WEBP - up to ${MAX_UPLOAD_FILES} images, ${formatBytes(MAX_UPLOAD_BYTES)} each, ${formatBytes(MAX_UPLOAD_TOTAL_BYTES)} total`;
+}
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -47,13 +68,30 @@ export function cleanExtension(filename: string): string {
   return ALLOWED_EXTENSIONS.has(ext) ? ext : "png";
 }
 
-export function validateImageFile(file: File): string | null {
-  if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
-    return "Only PNG, JPEG, and WebP images are supported";
+export function validateImageFile(file: { name: string; type: string; size: number }): string | null {
+  const name = file.name ? `"${file.name}"` : "This file";
+  const ext = file.name.split(".").pop()?.toLowerCase() || "";
+  const supportedType = ALLOWED_IMAGE_TYPES.has(file.type);
+  const supportedExtension = ALLOWED_EXTENSIONS.has(ext);
+
+  if (!supportedType && !supportedExtension) {
+    return `${name} is not supported. Use PNG, JPG, or WebP.`;
+  }
+  if (file.size <= 0) {
+    return `${name} appears to be empty.`;
   }
   if (file.size > MAX_UPLOAD_BYTES) {
-    return `Images must be ${MAX_UPLOAD_BYTES / 1024 / 1024}MB or smaller`;
+    return `${name} is ${formatBytes(file.size)}. Max is under ${formatBytes(MAX_UPLOAD_BYTES)} per image.`;
   }
+  return null;
+}
+
+export function validateUploadTotal(files: Array<{ size: number }>, existingBytes = 0): string | null {
+  const totalBytes = files.reduce((sum, file) => sum + file.size, existingBytes);
+  if (totalBytes > MAX_UPLOAD_TOTAL_BYTES) {
+    return `This upload is ${formatBytes(totalBytes)}. Review batches must be ${formatBytes(MAX_UPLOAD_TOTAL_BYTES)} or smaller.`;
+  }
+
   return null;
 }
 
@@ -104,7 +142,8 @@ export function sanitizePreset(raw: unknown): Preset | null {
   if (!name) return null;
 
   const now = Date.now();
-  const shotMode = raw.shotMode === "model" ? "model" : "product";
+  const shotMode =
+    raw.shotMode === "model" || raw.shotMode === "touchup" ? raw.shotMode : "product";
 
   return {
     id: cleanText(raw.id, 80) || crypto.randomUUID(),
@@ -124,7 +163,9 @@ export function sanitizePresetPatch(raw: unknown): Partial<Omit<Preset, "id" | "
   const patch: Partial<Omit<Preset, "id" | "createdAt">> = {};
 
   if (typeof raw.name === "string") patch.name = cleanText(raw.name, 120);
-  if (raw.shotMode === "product" || raw.shotMode === "model") patch.shotMode = raw.shotMode;
+  if (raw.shotMode === "product" || raw.shotMode === "model" || raw.shotMode === "touchup") {
+    patch.shotMode = raw.shotMode;
+  }
   if (typeof raw.framing === "string") patch.framing = cleanText(raw.framing, 300);
   if (typeof raw.description === "string") patch.description = cleanText(raw.description, 5000);
   if (typeof raw.polishedPrompt === "string") patch.polishedPrompt = raw.polishedPrompt.slice(0, 5000);

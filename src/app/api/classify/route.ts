@@ -1,9 +1,17 @@
 import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai";
-import { validateImageFile } from "@/lib/validation";
+import { MAX_UPLOAD_BYTES, formatBytes, validateImageFile } from "@/lib/validation";
 
 export async function POST(request: Request) {
   try {
+    const contentLength = Number(request.headers.get("content-length") ?? 0);
+    if (contentLength > MAX_UPLOAD_BYTES + 1024 * 1024) {
+      return NextResponse.json(
+        { error: `Image is too large. Max is ${formatBytes(MAX_UPLOAD_BYTES)} per image.` },
+        { status: 413 }
+      );
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
     const product = (formData.get("product") as string) || "";

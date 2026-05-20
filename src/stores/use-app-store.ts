@@ -1,9 +1,20 @@
 "use client";
 
 import { create } from "zustand";
-import type { SourcePhoto, ActivePresetConfig, PhotoSettings, TokenUsage } from "@/types";
+import type {
+  SourcePhoto,
+  ActivePresetConfig,
+  PhotoSettings,
+  TokenUsage,
+  ModelPoseType,
+  ModelProfileSelection,
+  ModelWearerType,
+  TouchUpBackground,
+  TouchUpStrength,
+} from "@/types";
 import { DEFAULT_ACTIVE_PRESET } from "@/lib/constants";
 import { buildFinalPrompt } from "@/lib/final-prompt";
+import { normalizeModelProfileSelection } from "@/lib/model-shot";
 import { usePresetStore } from "./use-preset-store";
 
 type WorkspaceStatusFilter = "done" | "all" | Exclude<SourcePhoto["status"], "done">;
@@ -27,6 +38,14 @@ interface AppState {
   goHome: () => void;
   updateNotes: (notes: string) => void;
   updateModelOption: (key: "modelGender" | "modelBuild", value: string) => void;
+  updateModelShotOption: (
+    key: "modelWearerType" | "modelPoseType" | "modelProfileId",
+    value: ModelWearerType | ModelPoseType | ModelProfileSelection
+  ) => void;
+  updateTouchUpOption: (
+    key: "touchUpStrength" | "touchUpBackground",
+    value: TouchUpStrength | TouchUpBackground
+  ) => void;
   setWorkspaceStatusFilter: (value: WorkspaceStatusFilter) => void;
   setWorkspaceVisibilityFilter: (value: WorkspaceVisibilityFilter) => void;
   setWorkspaceSortOrder: (value: WorkspaceSortOrder) => void;
@@ -70,7 +89,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   workspaceVisibleCount: 24,
 
   selectPreset: (presetId) => {
-    set({ activePreset: { presetId, notes: "", modelGender: "varied", modelBuild: "varied" } });
+    set({
+      activePreset: {
+        ...DEFAULT_ACTIVE_PRESET,
+        presetId,
+      },
+    });
   },
 
   clearPreset: () => {
@@ -120,6 +144,31 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  updateModelShotOption: (key, value) => {
+    set((s) => {
+      if (key === "modelWearerType") {
+        const wearerType = value as ModelWearerType;
+        return {
+          activePreset: {
+            ...s.activePreset,
+            modelWearerType: wearerType,
+            modelProfileId: normalizeModelProfileSelection(s.activePreset.modelProfileId, wearerType),
+          },
+        };
+      }
+
+      return {
+        activePreset: { ...s.activePreset, [key]: value },
+      };
+    });
+  },
+
+  updateTouchUpOption: (key, value) => {
+    set((s) => ({
+      activePreset: { ...s.activePreset, [key]: value },
+    }));
+  },
+
   getActivePrompt: () => {
     const { activePreset } = get();
     if (!activePreset.presetId) return null;
@@ -139,6 +188,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       shotMode: preset?.shotMode ?? "product",
       modelGender: preset?.shotMode === "model" ? activePreset.modelGender || "varied" : undefined,
       modelBuild: preset?.shotMode === "model" ? activePreset.modelBuild || "varied" : undefined,
+      modelWearerType: preset?.shotMode === "model" ? activePreset.modelWearerType : undefined,
+      modelPoseType: preset?.shotMode === "model" ? activePreset.modelPoseType : undefined,
+      modelProfileId: preset?.shotMode === "model" ? activePreset.modelProfileId : undefined,
+      touchUpStrength: preset?.shotMode === "touchup" ? activePreset.touchUpStrength : undefined,
+      touchUpBackground: preset?.shotMode === "touchup" ? activePreset.touchUpBackground : undefined,
       notes: notes || undefined,
       finalPrompt: buildFinalPrompt(preset, activePreset),
     };
@@ -157,6 +211,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       const loadedPhotos = data.photos.map((photo) => ({
         ...photo,
         visibility: photo.visibility ?? "active",
+        usedSettings: {
+          ...photo.usedSettings,
+          modelWearerType:
+            photo.usedSettings.modelWearerType ??
+            (photo.usedSettings.modelGender === "female" ? "womens" : "mens"),
+          modelPoseType: photo.usedSettings.modelPoseType ?? "upper_face_visible",
+          touchUpStrength: photo.usedSettings.touchUpStrength ?? "standard",
+          touchUpBackground: photo.usedSettings.touchUpBackground ?? "standard_gray",
+        },
       }));
       set((s) => {
         const existingIds = new Set(s.photos.map((p) => p.id));

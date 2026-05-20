@@ -9,12 +9,14 @@ Rules:
 - Write a single paragraph, direct and descriptive
 - For "product" shot mode: describe a product-only studio shot, no model or person
 - For "model" shot mode: describe a model wearing or holding the product in a studio setting
-- For model shots, ALWAYS include an instruction to vary model skin tone and appearance naturally across different generations
-- Do NOT specify model gender or body type — those are set at runtime per batch
+- For "touchup" shot mode: describe cleaning up an existing rough model/product source photo while preserving the same person, pose, product fit, artwork, logo placement, colors, and composition
+- For model shots, DO NOT specify crop, framing, face visibility, body area, gender, body type, age group, or model identity; those are runtime settings
+- For touch-up shots, NEVER ask to create or replace the model/person; the uploaded source already contains the model/person
+- Do NOT specify model gender or body type - those are set at runtime per batch
 - Incorporate the background description and brand rules as constraints
 - Include the user's description naturally
 - Do NOT add details the user did not specify or imply
-- Do NOT use markdown, bullet points, or labels — just a flowing paragraph
+- Do NOT use markdown, bullet points, or labels - just a flowing paragraph
 - Keep it under 150 words
 - The prompt should produce consistent, catalog-quality results across many different products of this type`;
 
@@ -26,7 +28,10 @@ export async function POST(request: Request) {
     }
 
     const presetName = cleanText(body.presetName, 120);
-    const shotMode = body.shotMode === "model" ? "model" : body.shotMode === "product" ? "product" : "";
+    const shotMode =
+      body.shotMode === "model" || body.shotMode === "product" || body.shotMode === "touchup"
+        ? body.shotMode
+        : "";
     const framing = cleanText(body.framing, 300);
     const description = cleanText(body.description, 5000);
     const brandRules = cleanText(body.brandRules, 5000);

@@ -264,9 +264,55 @@ function normalizePhotoSettings(settings: Partial<PhotoSettings> | null | undefi
   return {
     presetId: typeof settings?.presetId === "string" ? settings.presetId : null,
     presetName: settings?.presetName || "None",
-    shotMode: settings?.shotMode === "model" ? "model" : "product",
+    shotMode:
+      settings?.shotMode === "model" || settings?.shotMode === "touchup"
+        ? settings.shotMode
+        : "product",
     modelGender: typeof settings?.modelGender === "string" ? settings.modelGender : undefined,
     modelBuild: typeof settings?.modelBuild === "string" ? settings.modelBuild : undefined,
+    modelWearerType:
+      settings?.modelWearerType === "womens" ||
+      settings?.modelWearerType === "youth" ||
+      settings?.modelWearerType === "toddler" ||
+      settings?.modelWearerType === "mens"
+        ? settings.modelWearerType
+        : settings?.modelGender === "female"
+          ? "womens"
+          : "mens",
+    modelPoseType:
+      settings?.modelPoseType === "full_body" ||
+      settings?.modelPoseType === "upper_face_visible" ||
+      settings?.modelPoseType === "upper_no_face" ||
+      settings?.modelPoseType === "lower_no_face"
+        ? settings.modelPoseType
+        : "upper_face_visible",
+    modelProfileId: typeof settings?.modelProfileId === "string" ? settings.modelProfileId : undefined,
+    modelProfileName: typeof settings?.modelProfileName === "string" ? settings.modelProfileName : undefined,
+    productGroupId: typeof settings?.productGroupId === "string" ? settings.productGroupId : undefined,
+    productGroupLabel: typeof settings?.productGroupLabel === "string" ? settings.productGroupLabel : undefined,
+    viewType:
+      settings?.viewType === "front" ||
+      settings?.viewType === "back" ||
+      settings?.viewType === "side" ||
+      settings?.viewType === "detail" ||
+      settings?.viewType === "unknown"
+        ? settings.viewType
+        : undefined,
+    touchUpStrength:
+      settings?.touchUpStrength === "light" ||
+      settings?.touchUpStrength === "standard" ||
+      settings?.touchUpStrength === "deep"
+        ? settings.touchUpStrength
+        : settings?.shotMode === "touchup"
+          ? "standard"
+          : undefined,
+    touchUpBackground:
+      settings?.touchUpBackground === "standard_gray" ||
+      settings?.touchUpBackground === "preserve"
+        ? settings.touchUpBackground
+        : settings?.shotMode === "touchup"
+          ? "standard_gray"
+          : undefined,
     notes: typeof settings?.notes === "string" ? settings.notes : undefined,
     finalPrompt: typeof settings?.finalPrompt === "string" ? settings.finalPrompt : null,
   };
