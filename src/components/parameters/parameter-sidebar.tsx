@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Copy, Maximize2 } from "lucide-react";
+import { Copy, Maximize2, Save } from "lucide-react";
 import { PresetSelector } from "./preset-selector";
 import { PresetEditorDialog } from "./preset-editor-dialog";
 import { toast } from "sonner";
@@ -75,6 +75,7 @@ function SettingChoice({
 export function ParameterSidebar() {
   const activePreset = useAppStore((s) => s.activePreset);
   const updateNotes = useAppStore((s) => s.updateNotes);
+  const saveNotes = useAppStore((s) => s.saveNotes);
   const updateModelShotOption = useAppStore((s) => s.updateModelShotOption);
   const updateTouchUpOption = useAppStore((s) => s.updateTouchUpOption);
   const getActivePrompt = useAppStore((s) => s.getActivePrompt);
@@ -263,14 +264,27 @@ export function ParameterSidebar() {
               </div>
               <Textarea
                 rows={5}
-                placeholder={`One-off instructions for this upload.\nExample: show the back logo, crop tighter, preserve tag placement.`}
+                placeholder={`Extra instructions saved with this preset.\nExample: show the back logo, crop tighter, preserve tag placement.`}
                 value={activePreset.notes}
                 onChange={(e) => updateNotes(e.target.value)}
+                onBlur={saveNotes}
                 className="min-h-28 resize-y text-sm leading-relaxed"
               />
-              <p className="text-[11px] text-muted-foreground/60">
-                Appended to the final prompt for the next upload.
-              </p>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground/60">
+                  Saved with this preset and appended to every upload.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 gap-1.5 px-2.5 text-xs"
+                  onClick={saveNotes}
+                >
+                  <Save className="h-3.5 w-3.5" />
+                  Save
+                </Button>
+              </div>
             </div>
 
           </>

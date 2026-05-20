@@ -37,6 +37,7 @@ interface AppState {
   clearPreset: () => void;
   goHome: () => void;
   updateNotes: (notes: string) => void;
+  saveNotes: () => void;
   updateModelOption: (key: "modelGender" | "modelBuild", value: string) => void;
   updateModelShotOption: (
     key: "modelWearerType" | "modelPoseType" | "modelProfileId",
@@ -76,6 +77,24 @@ interface AppState {
   clearSelection: () => void;
 }
 
+let notesSyncTimer: ReturnType<typeof setTimeout> | null = null;
+
+function flushNotesToPreset(getState: () => AppState) {
+  if (notesSyncTimer) clearTimeout(notesSyncTimer);
+  notesSyncTimer = null;
+  const { activePreset } = getState();
+  if (!activePreset.presetId) return;
+  const notes = activePreset.notes.trim();
+  usePresetStore.getState().updatePreset(activePreset.presetId, {
+    notes: notes || undefined,
+  });
+}
+
+function debouncedSyncNotes(getState: () => AppState) {
+  if (notesSyncTimer) clearTimeout(notesSyncTimer);
+  notesSyncTimer = setTimeout(() => flushNotesToPreset(getState), 800);
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   activePreset: { ...DEFAULT_ACTIVE_PRESET },
 
@@ -89,10 +108,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   workspaceVisibleCount: 24,
 
   selectPreset: (presetId) => {
+    const preset = usePresetStore.getState().getPreset(presetId);
     set({
       activePreset: {
         ...DEFAULT_ACTIVE_PRESET,
         presetId,
+        notes: preset?.notes ?? "",
       },
     });
   },
@@ -136,6 +157,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       activePreset: { ...s.activePreset, notes },
     }));
+    debouncedSyncNotes(get);
+  },
+
+  saveNotes: () => {
+    flushNotesToPreset(get);
   },
 
   updateModelOption: (key: "modelGender" | "modelBuild", value: string) => {

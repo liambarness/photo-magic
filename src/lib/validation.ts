@@ -152,6 +152,7 @@ export function sanitizePreset(raw: unknown): Preset | null {
     framing: shotMode === "model" ? cleanText(raw.framing, 300) : "",
     description: cleanText(raw.description, 5000),
     polishedPrompt: typeof raw.polishedPrompt === "string" ? raw.polishedPrompt.slice(0, 5000) : null,
+    notes: typeof raw.notes === "string" && raw.notes.trim() ? raw.notes.trim().slice(0, 2000) : undefined,
     createdAt: typeof raw.createdAt === "number" ? raw.createdAt : now,
     updatedAt: typeof raw.updatedAt === "number" ? raw.updatedAt : now,
   };
@@ -170,6 +171,8 @@ export function sanitizePresetPatch(raw: unknown): Partial<Omit<Preset, "id" | "
   if (typeof raw.description === "string") patch.description = cleanText(raw.description, 5000);
   if (typeof raw.polishedPrompt === "string") patch.polishedPrompt = raw.polishedPrompt.slice(0, 5000);
   if (raw.polishedPrompt === null) patch.polishedPrompt = null;
+  if (typeof raw.notes === "string") patch.notes = raw.notes.trim().slice(0, 2000) || undefined;
+  if (raw.notes === undefined) patch.notes = undefined;
 
   return patch;
 }

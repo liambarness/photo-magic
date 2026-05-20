@@ -23,6 +23,7 @@ export interface Preset {
   framing: string;
   description: string;
   polishedPrompt: string | null;
+  notes?: string;
   createdAt: number;
   updatedAt: number;
   system?: boolean;
