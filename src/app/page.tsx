@@ -2,6 +2,7 @@
 
 import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { SettingsDialog } from "@/components/layout/settings-dialog";
+import { CollectionScraper } from "@/components/layout/collection-scraper";
 import { ParameterSidebar } from "@/components/parameters/parameter-sidebar";
 import { Workspace } from "@/components/workspace/workspace";
 import { useAppStore } from "@/stores/use-app-store";
@@ -20,7 +21,8 @@ export default function Home() {
         >
           Photo Magic
         </button>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
+          <CollectionScraper />
           <SettingsDialog />
           <ThemeToggle />
         </div>
