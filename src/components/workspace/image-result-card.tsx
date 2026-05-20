@@ -24,6 +24,24 @@ function settingsSummary(photo: SourcePhoto): string {
   return photo.usedSettings.presetName || photo.name;
 }
 
+function modelSummary(photo: SourcePhoto): string | null {
+  if (photo.usedSettings.shotMode !== "model") return null;
+  const parts = [
+    photo.usedSettings.modelProfileName,
+    photo.usedSettings.productGroupLabel,
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(" - ") : null;
+}
+
+function workflowSummary(photo: SourcePhoto): string | null {
+  if (photo.usedSettings.shotMode === "model") return modelSummary(photo);
+  if (photo.usedSettings.shotMode === "touchup") {
+    const strength = photo.usedSettings.touchUpStrength ?? "standard";
+    return `Touch Up - ${strength}`;
+  }
+  return null;
+}
+
 export function ImageResultCard({
   photo,
   selected,
@@ -39,6 +57,7 @@ export function ImageResultCard({
   const isFinished = isDone || photo.status === "error";
   const isArchived = photo.visibility === "archived";
   const pendingLabel = photo.serverPath ? "Queued" : "Uploading and labeling...";
+  const workflowLabel = workflowSummary(photo);
   const [feedback, setFeedback] = useState("");
 
   const handleRegenerate = (e: React.FormEvent) => {
@@ -173,14 +192,21 @@ export function ImageResultCard({
 
       <div className="px-3 py-2 border-t space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <p className="text-[11px] text-muted-foreground truncate">
-              {settingsSummary(photo)}
-            </p>
-            {photo.cost > 0 && (
-              <span className="text-[10px] text-muted-foreground/60 shrink-0">
-                ${photo.cost.toFixed(3)}
-              </span>
+          <div className="min-w-0 space-y-0.5">
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="truncate text-[11px] text-muted-foreground">
+                {settingsSummary(photo)}
+              </p>
+              {photo.cost > 0 && (
+                <span className="shrink-0 text-[10px] text-muted-foreground/60">
+                  ${photo.cost.toFixed(3)}
+                </span>
+              )}
+            </div>
+            {workflowLabel && (
+              <p className="truncate text-[10px] text-muted-foreground/60">
+                {workflowLabel}
+              </p>
             )}
           </div>
           {isFinished && (

@@ -23,15 +23,18 @@ interface PresetSelectorProps {
 }
 
 function sortByName(a: Preset, b: Preset) {
+  if (a.system !== b.system) return a.system ? -1 : 1;
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }
 
 function PresetOption({ preset }: { preset: Preset }) {
+  const shotLabel =
+    preset.system ? "Global" : preset.shotMode === "model" ? "Model" : preset.shotMode === "touchup" ? "Touch Up" : "Product";
   return (
     <span className="flex min-w-0 flex-1 items-center justify-between gap-3">
       <span className="truncate">{preset.name}</span>
       <span className="rounded border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-        {preset.shotMode === "model" ? "Model" : "Product"}
+        {shotLabel}
       </span>
     </span>
   );
@@ -48,6 +51,7 @@ export function PresetSelector({ onNew, onEdit }: PresetSelectorProps) {
     () => ({
       product: presets.filter((p) => p.shotMode === "product").sort(sortByName),
       model: presets.filter((p) => p.shotMode === "model").sort(sortByName),
+      touchup: presets.filter((p) => p.shotMode === "touchup").sort(sortByName),
     }),
     [presets]
   );
@@ -117,7 +121,8 @@ export function PresetSelector({ onNew, onEdit }: PresetSelectorProps) {
                 ))}
               </SelectGroup>
             )}
-            {groupedPresets.product.length > 0 && groupedPresets.model.length > 0 && (
+            {groupedPresets.product.length > 0 &&
+              (groupedPresets.model.length > 0 || groupedPresets.touchup.length > 0) && (
               <SelectSeparator />
             )}
             {groupedPresets.model.length > 0 && (
@@ -130,9 +135,22 @@ export function PresetSelector({ onNew, onEdit }: PresetSelectorProps) {
                 ))}
               </SelectGroup>
             )}
+            {groupedPresets.model.length > 0 && groupedPresets.touchup.length > 0 && (
+              <SelectSeparator />
+            )}
+            {groupedPresets.touchup.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>Touch Ups</SelectLabel>
+                {groupedPresets.touchup.map((p) => (
+                  <SelectItem key={p.id} value={p.id} className="py-1.5">
+                    <PresetOption preset={p} />
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
           </SelectContent>
         </Select>
-        {activePresetId && (
+        {activePresetId && activePreset && !activePreset.system && (
           <Button
             variant="ghost"
             size="sm"

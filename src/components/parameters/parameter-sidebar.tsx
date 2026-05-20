@@ -7,6 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogClose,
   DialogContent,
@@ -16,11 +23,28 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Copy, Maximize2 } from "lucide-react";
-import { MODEL_GENDER_OPTIONS, MODEL_BUILD_OPTIONS } from "@/lib/constants";
 import { PresetSelector } from "./preset-selector";
 import { PresetEditorDialog } from "./preset-editor-dialog";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  MODEL_POSE_OPTIONS,
+  MODEL_PROFILE_AUTO_ID,
+  MODEL_WEARER_OPTIONS,
+  getModelPoseOption,
+  getModelWearerOption,
+  modelProfilesForWearer,
+} from "@/lib/model-shot";
+import {
+  TOUCH_UP_STRENGTH_OPTIONS,
+  getTouchUpStrengthOption,
+} from "@/lib/touch-up";
+import type {
+  ModelPoseType,
+  ModelProfileSelection,
+  ModelWearerType,
+  TouchUpStrength,
+} from "@/types";
 
 function SettingChoice({
   label,
@@ -51,7 +75,8 @@ function SettingChoice({
 export function ParameterSidebar() {
   const activePreset = useAppStore((s) => s.activePreset);
   const updateNotes = useAppStore((s) => s.updateNotes);
-  const updateModelOption = useAppStore((s) => s.updateModelOption);
+  const updateModelShotOption = useAppStore((s) => s.updateModelShotOption);
+  const updateTouchUpOption = useAppStore((s) => s.updateTouchUpOption);
   const getActivePrompt = useAppStore((s) => s.getActivePrompt);
 
   const preset = usePresetStore((s) =>
@@ -72,8 +97,14 @@ export function ParameterSidebar() {
     setEditorOpen(true);
   };
 
-  const genderLabel = MODEL_GENDER_OPTIONS.find((o) => o.value === activePreset.modelGender)?.label ?? "Varied";
-  const buildLabel = MODEL_BUILD_OPTIONS.find((o) => o.value === activePreset.modelBuild)?.label ?? "Varied";
+  const wearer = getModelWearerOption(activePreset.modelWearerType);
+  const pose = getModelPoseOption(activePreset.modelPoseType);
+  const modelProfiles = modelProfilesForWearer(wearer.value);
+  const selectedModelProfile =
+    activePreset.modelProfileId === MODEL_PROFILE_AUTO_ID
+      ? null
+      : modelProfiles.find((profile) => profile.id === activePreset.modelProfileId) ?? null;
+  const touchUpStrength = getTouchUpStrengthOption(activePreset.touchUpStrength);
   const finalPrompt = getActivePrompt() ?? "";
   const promptWordCount = finalPrompt ? finalPrompt.trim().split(/\s+/).length : 0;
 
@@ -102,53 +133,122 @@ export function ParameterSidebar() {
                 <p className="text-sm leading-snug text-foreground">
                   {preset.shotMode === "product"
                     ? "Product shot, no model"
-                    : "Model shot, worn or held"}
+                    : preset.shotMode === "model"
+                      ? "Model shot, AI model generated"
+                      : "Touch up existing model/product"}
                 </p>
               </div>
               <Badge variant="outline" className="mt-0.5">
-                {preset.shotMode === "model" ? "Model" : "Product"}
+                {preset.shotMode === "model"
+                  ? "Model"
+                  : preset.shotMode === "touchup"
+                    ? "Touch Up"
+                    : "Product"}
               </Badge>
             </div>
 
             {preset.shotMode === "model" && (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <label className="text-xs font-medium text-muted-foreground">
-                      Model Gender
+                      Wearer
                     </label>
-                    <span className="text-[11px] text-muted-foreground/60">{genderLabel}</span>
+                    <span className="text-[11px] text-muted-foreground/60">{wearer.label}</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {MODEL_GENDER_OPTIONS.map((option) => (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {MODEL_WEARER_OPTIONS.map((option) => (
                       <SettingChoice
                         key={option.value}
                         label={option.label}
-                        active={(activePreset.modelGender || "varied") === option.value}
-                        onClick={() => updateModelOption("modelGender", option.value)}
+                        active={activePreset.modelWearerType === option.value}
+                        onClick={() => updateModelShotOption("modelWearerType", option.value as ModelWearerType)}
                       />
                     ))}
                   </div>
                 </div>
 
-                <div className="space-y-1">
+                <div className="space-y-2">
                   <div className="flex items-center justify-between gap-2">
                     <label className="text-xs font-medium text-muted-foreground">
-                      Model Build
+                      Framing
                     </label>
-                    <span className="text-[11px] text-muted-foreground/60">{buildLabel}</span>
+                    <span className="text-[11px] text-muted-foreground/60">{pose.shortLabel}</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {MODEL_BUILD_OPTIONS.map((option) => (
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {MODEL_POSE_OPTIONS.map((option) => (
                       <SettingChoice
                         key={option.value}
-                        label={option.label}
-                        active={(activePreset.modelBuild || "varied") === option.value}
-                        onClick={() => updateModelOption("modelBuild", option.value)}
+                        label={option.shortLabel}
+                        active={activePreset.modelPoseType === option.value}
+                        onClick={() => updateModelShotOption("modelPoseType", option.value as ModelPoseType)}
                       />
                     ))}
                   </div>
                 </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Model
+                    </label>
+                    <span className="text-[11px] text-muted-foreground/60">
+                      {selectedModelProfile?.name ?? "Auto rotate"}
+                    </span>
+                  </div>
+                  <Select
+                    value={activePreset.modelProfileId || MODEL_PROFILE_AUTO_ID}
+                    onValueChange={(value) =>
+                      updateModelShotOption("modelProfileId", value as ModelProfileSelection)
+                    }
+                  >
+                    <SelectTrigger className="h-9 w-full text-sm">
+                      <SelectValue>
+                        {selectedModelProfile?.name ?? "Auto rotate by product group"}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="start" alignItemWithTrigger={false} className="min-w-64">
+                      <SelectItem value={MODEL_PROFILE_AUTO_ID}>Auto rotate by product group</SelectItem>
+                      {modelProfiles.map((profile) => (
+                        <SelectItem key={profile.id} value={profile.id}>
+                          {profile.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground/60">
+                    Auto assigns one stable model per product group during upload review.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {preset.shotMode === "touchup" && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Cleanup
+                    </label>
+                    <span className="text-[11px] text-muted-foreground/60">
+                      {touchUpStrength.shortLabel}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5">
+                    {TOUCH_UP_STRENGTH_OPTIONS.map((option) => (
+                      <SettingChoice
+                        key={option.value}
+                        label={option.shortLabel}
+                        active={activePreset.touchUpStrength === option.value}
+                        onClick={() => updateTouchUpOption("touchUpStrength", option.value as TouchUpStrength)}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <p className="text-[11px] leading-relaxed text-muted-foreground/60">
+                  Preserves the existing model/person, pose, product fit, logo, artwork, and composition.
+                </p>
               </div>
             )}
 

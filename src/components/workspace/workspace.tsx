@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { upload } from "@vercel/blob/client";
 import { useAppStore } from "@/stores/use-app-store";
 import { usePresetStore } from "@/stores/use-preset-store";
 import { ImageDropArea } from "./image-drop-area";
@@ -14,12 +15,35 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Download, CheckSquare, X, Archive, ArchiveRestore, Trash2 } from "lucide-react";
+import { Download, CheckSquare, X, Archive, ArchiveRestore, Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSettingsStore } from "@/stores/use-settings-store";
 import { buildFinalPrompt } from "@/lib/final-prompt";
-import { MAX_UPLOAD_FILES, validateImageFile } from "@/lib/validation";
-import type { PhotoSettings, SourcePhoto } from "@/types";
+import {
+  MAX_UPLOAD_FILES,
+  cleanExtension,
+  cleanPathSegment,
+  formatBytes,
+  validateImageFile,
+  validateUploadTotal,
+} from "@/lib/validation";
+import {
+  MODEL_PROFILE_AUTO_ID,
+  assignModelProfilesToGroups,
+  inferViewType,
+  productGroupLabel,
+} from "@/lib/model-shot";
+import type {
+  ActivePresetConfig,
+  ModelPoseType,
+  ModelProfileSelection,
+  ModelViewType,
+  ModelWearerType,
+  PhotoSettings,
+  SourcePhoto,
+  TouchUpBackground,
+  TouchUpStrength,
+} from "@/types";
 
 const INITIAL_VISIBLE_RESULTS = 24;
 const VISIBLE_RESULTS_STEP = 24;
@@ -27,6 +51,20 @@ const VISIBLE_RESULTS_STEP = 24;
 type StatusFilter = "done" | "all" | Exclude<SourcePhoto["status"], "done">;
 type VisibilityFilter = "active" | "archived" | "all";
 type SortOrder = "newest" | "oldest";
+
+interface ResolvedUploadItem extends PendingUploadItem {
+  settings: PhotoSettings;
+  prompt: string;
+}
+
+interface UploadedBlobItem {
+  id: string;
+  name: string;
+  blobUrl: string;
+  contentType: string;
+  size: number;
+  settings: PhotoSettings;
+}
 
 async function runPool<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
   const results: T[] = [];
@@ -52,6 +90,45 @@ function imageExtension(url: string): string {
   return source.split("?")[0].split(".").pop() || "png";
 }
 
+function sourceUploadPath(folder: string, item: ResolvedUploadItem): string {
+  const ext = cleanExtension(item.file.name);
+  const baseName = item.file.name
+    .replace(/\.[^.]+$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 72) || "image";
+  const safeFolder = cleanPathSegment(folder, "batch");
+  const safeId = cleanPathSegment(item.id, "item");
+
+  return `source-uploads/${safeFolder}/${safeId}/${baseName}.${ext}`;
+}
+
+function imageContentType(file: File): string {
+  if (file.type) return file.type;
+
+  switch (cleanExtension(file.name)) {
+    case "jpg":
+    case "jpeg":
+      return "image/jpeg";
+    case "webp":
+      return "image/webp";
+    default:
+      return "image/png";
+  }
+}
+
+async function cleanupUploadedBlobs(items: UploadedBlobItem[]): Promise<void> {
+  if (items.length === 0) return;
+
+  await fetch("/api/blob-upload", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ blobUrls: items.map((item) => item.blobUrl) }),
+  }).catch(() => undefined);
+}
+
 async function saveHistory(photos: SourcePhoto[]): Promise<void> {
   if (photos.length === 0) return;
 
@@ -72,19 +149,67 @@ function revokeLocalPreviews(photos: SourcePhoto[] | PendingUploadItem[]) {
   });
 }
 
-function normalizeFiles(files: File[]): File[] {
-  const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-  if (imageFiles.length === 0) return [];
+function normalizeReviewGroupIds(items: PendingUploadItem[]): PendingUploadItem[] {
+  const groupIds = Array.from(new Set(items.map((item) => item.productGroupId))).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" })
+  );
+  const groupMap = new Map(groupIds.map((groupId, index) => [groupId, String(index + 1)]));
 
-  for (const file of imageFiles) {
-    const error = validateImageFile(file);
-    if (error) {
-      toast.error(error);
-      return [];
-    }
+  return items.map((item) => ({
+    ...item,
+    productGroupId: groupMap.get(item.productGroupId) ?? "1",
+  }));
+}
+
+function showUploadErrors(errors: string[]) {
+  if (errors.length === 0) return;
+  if (errors.length === 1) {
+    toast.error(errors[0]);
+    return;
   }
 
-  return imageFiles;
+  const visibleErrors = errors.slice(0, 3);
+  const hiddenCount = errors.length - visibleErrors.length;
+  toast.error(`${errors.length} upload issues`, {
+    description: `${visibleErrors.join("\n")}${hiddenCount > 0 ? `\n+${hiddenCount} more` : ""}`,
+  });
+}
+
+function normalizeFiles(files: File[], existingItems: PendingUploadItem[] = []): File[] {
+  if (files.length === 0) return [];
+
+  const errors: string[] = [];
+  const acceptedFiles: File[] = [];
+
+  for (const file of files) {
+    const error = validateImageFile(file);
+    if (error) {
+      errors.push(error);
+      continue;
+    }
+    acceptedFiles.push(file);
+  }
+
+  showUploadErrors(errors);
+  if (acceptedFiles.length === 0) return [];
+
+  if (existingItems.length + acceptedFiles.length > MAX_UPLOAD_FILES) {
+    toast.error(`Review up to ${MAX_UPLOAD_FILES} images at a time.`, {
+      description: `${existingItems.length} already staged, ${acceptedFiles.length} selected.`,
+    });
+    return [];
+  }
+
+  const existingBytes = existingItems.reduce((sum, item) => sum + item.file.size, 0);
+  const totalUploadError = validateUploadTotal(acceptedFiles, existingBytes);
+  if (totalUploadError) {
+    toast.error(totalUploadError, {
+      description: `Already staged: ${formatBytes(existingBytes)}. Selected: ${formatBytes(acceptedFiles.reduce((sum, file) => sum + file.size, 0))}.`,
+    });
+    return [];
+  }
+
+  return acceptedFiles;
 }
 
 function imageReadyKey(photo: SourcePhoto): string {
@@ -100,6 +225,28 @@ function preloadBrowserImage(url: string): Promise<void> {
     image.src = url;
     if (image.complete) resolve();
   });
+}
+
+async function preloadPhotoImages(photo: SourcePhoto): Promise<void> {
+  if (photo.status !== "done" || !photo.resultUrl) return;
+  await Promise.all([
+    preloadBrowserImage(photo.resultUrl),
+    preloadBrowserImage(photo.previewUrl),
+  ]);
+}
+
+function settingsToActiveConfig(settings: PhotoSettings): ActivePresetConfig {
+  return {
+    presetId: settings.presetId,
+    notes: settings.notes ?? "",
+    modelGender: settings.modelGender ?? "varied",
+    modelBuild: settings.modelBuild ?? "varied",
+    modelWearerType: settings.modelWearerType ?? "mens",
+    modelPoseType: settings.modelPoseType ?? "upper_face_visible",
+    modelProfileId: settings.modelProfileId ?? MODEL_PROFILE_AUTO_ID,
+    touchUpStrength: settings.touchUpStrength ?? "standard",
+    touchUpBackground: settings.touchUpBackground ?? "standard_gray",
+  };
 }
 
 export function Workspace() {
@@ -144,6 +291,7 @@ export function Workspace() {
   const [reviewPrompt, setReviewPrompt] = useState("");
   const [reviewAdditionalParameters, setReviewAdditionalParameters] = useState("");
   const [readyImageKeys, setReadyImageKeys] = useState<Set<string>>(() => new Set());
+  const [loadingMore, setLoadingMore] = useState(false);
   const preloadingImageKeys = useRef(new Set<string>());
   const resultsScrollRef = useRef<HTMLDivElement>(null);
 
@@ -195,7 +343,7 @@ export function Workspace() {
   );
 
   const uploadAndProcess = useCallback(
-    async (items: PendingUploadItem[], settings: PhotoSettings, prompt: string) => {
+    async (items: ResolvedUploadItem[], settings: PhotoSettings) => {
       const folder = batchFolder();
       const now = Date.now();
       setStatusFilter("all");
@@ -211,7 +359,7 @@ export function Workspace() {
         status: "pending" as const,
         resultUrl: null,
         error: null,
-        usedSettings: settings,
+        usedSettings: item.settings,
         visibility: "active",
         cost: 0,
         usage: null,
@@ -221,21 +369,64 @@ export function Workspace() {
 
       addPhotos(newPhotos);
 
-      const formData = new FormData();
-      formData.append("folder", folder);
-      formData.append("product", settings.presetName);
-      formData.append("shotType", settings.shotMode);
-      formData.append("settings", JSON.stringify(settings));
-      items.forEach((item) => {
-        formData.append("files", item.file);
-        formData.append("ids", item.id);
-      });
+      const uploadResults = await runPool(
+        items.map((item) => async () => {
+          try {
+            const contentType = imageContentType(item.file);
+            const blob = await upload(sourceUploadPath(folder, item), item.file, {
+              access: "private",
+              handleUploadUrl: "/api/blob-upload",
+              contentType,
+              multipart: item.file.size > 25 * 1024 * 1024,
+              clientPayload: JSON.stringify({ id: item.id, name: item.file.name }),
+            });
+
+            return {
+              ok: true as const,
+              uploaded: {
+                id: item.id,
+                name: item.file.name,
+                blobUrl: blob.url,
+                contentType,
+                size: item.file.size,
+                settings: item.settings,
+              } satisfies UploadedBlobItem,
+            };
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Source upload failed";
+            setPhotoStatus(item.id, "error", null, message);
+            return { ok: false as const, id: item.id };
+          }
+        }),
+        Math.min(concurrency, 4)
+      );
+
+      const uploadedItems = uploadResults
+        .filter((result): result is Extract<(typeof uploadResults)[number], { ok: true }> => result.ok)
+        .map((result) => result.uploaded);
+
+      if (uploadedItems.length === 0) {
+        toast.error("Upload failed");
+        return;
+      }
 
       try {
-        const uploadRes = await fetch("/api/upload", { method: "POST", body: formData });
+        const uploadRes = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            folder,
+            product: settings.presetName,
+            shotType: settings.shotMode,
+            settings,
+            items: uploadedItems,
+          }),
+        });
         if (!uploadRes.ok) {
-          const err = await uploadRes.text();
-          newPhotos.forEach((p) => setPhotoStatus(p.id, "error", null, err));
+          const err = await uploadRes.json().catch(() => null);
+          const message = typeof err?.error === "string" ? err.error : "Upload failed";
+          await cleanupUploadedBlobs(uploadedItems);
+          uploadedItems.forEach((item) => setPhotoStatus(item.id, "error", null, message));
           toast.error("Upload failed");
           return;
         }
@@ -255,10 +446,13 @@ export function Workspace() {
           }
         }
 
-        const missingUploads = newPhotos.filter((p) => !uploadedIds.has(p.id));
+        const successfulUploadIds = new Set(uploadedItems.map((item) => item.id));
+        const missingUploads = newPhotos.filter((p) => successfulUploadIds.has(p.id) && !uploadedIds.has(p.id));
+        await cleanupUploadedBlobs(uploadedItems.filter((item) => !uploadedIds.has(item.id)));
         missingUploads.forEach((p) => setPhotoStatus(p.id, "error", null, "Upload did not return a source image"));
       } catch {
-        newPhotos.forEach((p) => setPhotoStatus(p.id, "error", null, "Upload failed"));
+        await cleanupUploadedBlobs(uploadedItems);
+        uploadedItems.forEach((item) => setPhotoStatus(item.id, "error", null, "Upload failed"));
         toast.error("Upload failed");
         return;
       }
@@ -269,7 +463,12 @@ export function Workspace() {
 
       if (uploadedPhotos.length === 0) return;
 
-      await runPool(uploadedPhotos.map((p) => () => processPhoto(p.id, prompt)), concurrency);
+      await runPool(
+        uploadedPhotos.map((p) => () =>
+          processPhoto(p.id, p.usedSettings.finalPrompt ?? items.find((item) => item.id === p.id)?.prompt ?? "")
+        ),
+        concurrency
+      );
       const processedIds = new Set(uploadedPhotos.map((p) => p.id));
       const processedPhotos = useAppStore
         .getState()
@@ -293,7 +492,17 @@ export function Workspace() {
       const baseConfig =
         activePreset.presetId === presetId
           ? activePreset
-          : { presetId, notes: "", modelGender: "varied", modelBuild: "varied" };
+          : {
+              presetId,
+              notes: "",
+              modelGender: "varied",
+              modelBuild: "varied",
+              modelWearerType: "mens" as ModelWearerType,
+              modelPoseType: "upper_face_visible" as ModelPoseType,
+              modelProfileId: MODEL_PROFILE_AUTO_ID as ModelProfileSelection,
+              touchUpStrength: "standard" as TouchUpStrength,
+              touchUpBackground: "standard_gray" as TouchUpBackground,
+            };
       const config = {
         ...baseConfig,
         notes: additionalParameters ?? baseConfig.notes,
@@ -310,6 +519,11 @@ export function Workspace() {
           shotMode: preset.shotMode,
           modelGender: preset.shotMode === "model" ? config.modelGender || "varied" : undefined,
           modelBuild: preset.shotMode === "model" ? config.modelBuild || "varied" : undefined,
+          modelWearerType: preset.shotMode === "model" ? config.modelWearerType : undefined,
+          modelPoseType: preset.shotMode === "model" ? config.modelPoseType : undefined,
+          modelProfileId: preset.shotMode === "model" ? config.modelProfileId : undefined,
+          touchUpStrength: preset.shotMode === "touchup" ? config.touchUpStrength : undefined,
+          touchUpBackground: preset.shotMode === "touchup" ? config.touchUpBackground : undefined,
           notes: notes || undefined,
           finalPrompt: prompt,
         },
@@ -355,15 +569,8 @@ export function Workspace() {
 
   const stageFiles = useCallback(
     (files: File[]) => {
-      const imageFiles = normalizeFiles(files);
+      const imageFiles = normalizeFiles(files, reviewItems);
       if (imageFiles.length === 0) {
-        toast.error("No supported images found.");
-        return;
-      }
-
-      const existingCount = reviewItems.length;
-      if (existingCount + imageFiles.length > MAX_UPLOAD_FILES) {
-        toast.error(`Review up to ${MAX_UPLOAD_FILES} images at a time.`);
         return;
       }
 
@@ -379,11 +586,14 @@ export function Workspace() {
         : null;
       const prompt = reviewPrompt || reviewPreset?.prompt || "";
       const settings = reviewSettings ?? reviewPreset?.settings ?? null;
+      const existingCount = reviewItems.length;
 
-      const nextItems = imageFiles.map((file) => ({
+      const nextItems = imageFiles.map((file, index) => ({
         id: crypto.randomUUID(),
         file,
         previewUrl: URL.createObjectURL(file),
+        productGroupId: String(existingCount + index + 1),
+        viewType: inferViewType(file.name),
       }));
 
       setReviewPresetId(activeReviewPresetId ?? null);
@@ -396,7 +606,7 @@ export function Workspace() {
       activePresetId,
       activePreset.notes,
       buildReviewSettingsForPreset,
-      reviewItems.length,
+      reviewItems,
       reviewAdditionalParameters,
       reviewPresetId,
       reviewPrompt,
@@ -419,7 +629,9 @@ export function Workspace() {
       if (!item) return;
 
       revokeLocalPreviews([item]);
-      const nextItems = reviewItems.filter((reviewItem) => reviewItem.id !== itemId);
+      const nextItems = normalizeReviewGroupIds(
+        reviewItems.filter((reviewItem) => reviewItem.id !== itemId)
+      );
       setReviewItems(nextItems);
 
       if (nextItems.length === 0) {
@@ -432,22 +644,103 @@ export function Workspace() {
     [reviewItems]
   );
 
+  const updateReviewItemGroup = useCallback((itemId: string, productGroupId: string) => {
+    setReviewItems((current) =>
+      current.map((item) =>
+        item.id === itemId ? { ...item, productGroupId } : item
+      )
+    );
+  }, []);
+
+  const updateReviewItemViewType = useCallback((itemId: string, viewType: ModelViewType) => {
+    setReviewItems((current) =>
+      current.map((item) => (item.id === itemId ? { ...item, viewType } : item))
+    );
+  }, []);
+
+  const applyReviewGrouping = useCallback((strategy: "unique" | "pairs" | "single") => {
+    setReviewItems((current) =>
+      current.map((item, index) => {
+        if (strategy === "single") return { ...item, productGroupId: "1" };
+        if (strategy === "pairs") return { ...item, productGroupId: String(Math.floor(index / 2) + 1) };
+        return { ...item, productGroupId: String(index + 1) };
+      })
+    );
+  }, []);
+
+  const resolveReviewItems = useCallback((): ResolvedUploadItem[] | null => {
+    if (!reviewSettings || !reviewPresetId || reviewItems.length === 0) return null;
+
+    const preset = presets.find((p) => p.id === reviewPresetId);
+    if (!preset) return null;
+
+    if (reviewSettings.shotMode !== "model") {
+      return reviewItems.map((item) => ({
+        ...item,
+        prompt: reviewPrompt,
+        settings: {
+          ...reviewSettings,
+          finalPrompt: reviewPrompt,
+        },
+      }));
+    }
+
+    const groupIds = Array.from(new Set(reviewItems.map((item) => item.productGroupId)));
+    const wearerType = reviewSettings.modelWearerType ?? "mens";
+    const assignments = assignModelProfilesToGroups(
+      groupIds,
+      wearerType,
+      reviewSettings.modelProfileId ?? MODEL_PROFILE_AUTO_ID
+    );
+
+    return reviewItems.map((item) => {
+      const profile = assignments[item.productGroupId];
+      const itemSettings: PhotoSettings = {
+        ...reviewSettings,
+        modelProfileId: profile.id,
+        modelProfileName: profile.name,
+        productGroupId: item.productGroupId,
+        productGroupLabel: productGroupLabel(item.productGroupId),
+        viewType: item.viewType,
+      };
+      const itemPrompt =
+        buildFinalPrompt(preset, settingsToActiveConfig(itemSettings), {
+          modelProfileId: profile.id,
+          productGroupId: item.productGroupId,
+          productGroupLabel: itemSettings.productGroupLabel,
+          viewType: item.viewType,
+        }) ?? reviewPrompt;
+
+      return {
+        ...item,
+        prompt: itemPrompt,
+        settings: {
+          ...itemSettings,
+          finalPrompt: itemPrompt,
+        },
+      };
+    });
+  }, [presets, reviewItems, reviewPresetId, reviewPrompt, reviewSettings]);
+
   const approveReview = useCallback(() => {
     if (!reviewSettings || !reviewPrompt || !reviewPresetId || reviewItems.length === 0) {
       toast.error("Choose a preset before approving.");
       return;
     }
-    const items = reviewItems;
+    const items = resolveReviewItems();
+    if (!items) {
+      toast.error("Upload settings could not be resolved.");
+      return;
+    }
     const settings = reviewSettings;
-    const prompt = reviewPrompt;
 
     setReviewItems([]);
     setReviewPresetId(null);
     setReviewSettings(null);
     setReviewPrompt("");
     setReviewAdditionalParameters("");
-    void uploadAndProcess(items, settings, prompt);
-  }, [reviewItems, reviewPresetId, reviewPrompt, reviewSettings, uploadAndProcess]);
+    void uploadAndProcess(items, settings);
+  }, [reviewItems.length, reviewPresetId, reviewPrompt, reviewSettings, resolveReviewItems, uploadAndProcess]);
 
   const handleRedo = useCallback(
     async (photoId: string) => {
@@ -541,10 +834,7 @@ export function Workspace() {
       if (readyImageKeys.has(key) || preloadingImageKeys.current.has(key)) continue;
 
       preloadingImageKeys.current.add(key);
-      void Promise.all([
-        preloadBrowserImage(photo.resultUrl),
-        preloadBrowserImage(photo.previewUrl),
-      ]).then(() => {
+      void preloadPhotoImages(photo).then(() => {
         preloadingImageKeys.current.delete(key);
         setReadyImageKeys((current) => {
           if (current.has(key)) return current;
@@ -552,6 +842,8 @@ export function Workspace() {
           next.add(key);
           return next;
         });
+      }).catch(() => {
+        preloadingImageKeys.current.delete(key);
       });
     }
   }, [readyImageKeys, visiblePhotos]);
@@ -562,6 +854,39 @@ export function Workspace() {
     [selectedIds, visiblePhotoIds]
   );
   const selectedSet = useMemo(() => new Set(visibleSelectedIds), [visibleSelectedIds]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore) return;
+
+    const nextPhotos = filteredPhotos.slice(visibleCount, visibleCount + VISIBLE_RESULTS_STEP);
+    if (nextPhotos.length === 0) return;
+
+    setLoadingMore(true);
+    try {
+      const readyKeys: string[] = [];
+      await Promise.all(
+        nextPhotos.map(async (photo) => {
+          if (photo.status !== "done" || !photo.resultUrl) return;
+          await preloadPhotoImages(photo);
+          readyKeys.push(imageReadyKey(photo));
+        })
+      );
+
+      if (readyKeys.length > 0) {
+        setReadyImageKeys((current) => {
+          const next = new Set(current);
+          readyKeys.forEach((key) => next.add(key));
+          return next;
+        });
+      }
+
+      setVisibleCount((count) =>
+        Math.min(count + VISIBLE_RESULTS_STEP, filteredPhotos.length)
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [filteredPhotos, loadingMore, setVisibleCount, visibleCount]);
 
   useEffect(() => {
     resultsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
@@ -657,7 +982,11 @@ export function Workspace() {
   const hasPhotos = photos.length > 0;
   const doneCount = filteredPhotos.filter((p) => p.status === "done").length;
   const selectedCount = visibleSelectedIds.length;
-  const totalCost = filteredPhotos.reduce((sum, p) => sum + p.cost, 0);
+  const costPhotos =
+    selectedCount > 0
+      ? filteredPhotos.filter((photo) => selectedSet.has(photo.id))
+      : filteredPhotos;
+  const totalCost = costPhotos.reduce((sum, p) => sum + p.cost, 0);
   const hiddenCount = Math.max(0, filteredPhotos.length - visiblePhotos.length);
   const activeFilterLabel = activePresetName ?? "all products";
   const statusFilterLabel =
@@ -725,7 +1054,7 @@ export function Workspace() {
                   <SelectTrigger className="h-8 w-[120px] text-xs">
                     <SelectValue>{statusFilterLabel}</SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent align="start" alignItemWithTrigger={false} side="bottom" sideOffset={6}>
                     <SelectItem value="all">All status</SelectItem>
                     <SelectItem value="done">Completed</SelectItem>
                     <SelectItem value="processing">Processing</SelectItem>
@@ -743,7 +1072,7 @@ export function Workspace() {
                   <SelectTrigger className="h-8 w-[112px] text-xs">
                     <SelectValue>{visibilityFilterLabel}</SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent align="start" alignItemWithTrigger={false} side="bottom" sideOffset={6}>
                     <SelectItem value="active">Active</SelectItem>
                     <SelectItem value="archived">Archived</SelectItem>
                     <SelectItem value="all">All</SelectItem>
@@ -759,7 +1088,7 @@ export function Workspace() {
                   <SelectTrigger className="h-8 w-[104px] text-xs">
                     <SelectValue>{sortOrderLabel}</SelectValue>
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent align="start" alignItemWithTrigger={false} side="bottom" sideOffset={6}>
                     <SelectItem value="newest">Newest</SelectItem>
                     <SelectItem value="oldest">Oldest</SelectItem>
                   </SelectContent>
@@ -869,11 +1198,13 @@ export function Workspace() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        setVisibleCount((count) => count + VISIBLE_RESULTS_STEP)
-                      }
+                      onClick={() => void handleLoadMore()}
+                      disabled={loadingMore}
                     >
-                      Load {Math.min(VISIBLE_RESULTS_STEP, hiddenCount)} more
+                      {loadingMore && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+                      {loadingMore
+                        ? "Loading next images..."
+                        : `Load ${Math.min(VISIBLE_RESULTS_STEP, hiddenCount)} more`}
                     </Button>
                   </div>
                 )}
@@ -897,6 +1228,9 @@ export function Workspace() {
         additionalParameters={reviewAdditionalParameters}
         onPresetChange={handleReviewPresetChange}
         onAdditionalParametersChange={handleReviewAdditionalParametersChange}
+        onProductGroupChange={updateReviewItemGroup}
+        onViewTypeChange={updateReviewItemViewType}
+        onApplyGrouping={applyReviewGrouping}
         onAddFiles={stageFiles}
         onRemoveItem={removeReviewItem}
         onApprove={approveReview}

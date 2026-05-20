@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import type { Preset } from "@/types";
 import { toast } from "sonner";
+import { SYSTEM_PRESET_IDS, SYSTEM_PRESETS } from "@/lib/constants";
 
 interface PresetState {
   presets: Preset[];
@@ -28,8 +29,13 @@ export function createPresetShell(name = ""): Preset {
   };
 }
 
+function withSystemPresets(presets: Preset[]): Preset[] {
+  const customPresets = presets.filter((preset) => !SYSTEM_PRESET_IDS.has(preset.id));
+  return [...SYSTEM_PRESETS, ...customPresets];
+}
+
 export const usePresetStore = create<PresetState>((set, get) => ({
-  presets: [],
+  presets: withSystemPresets([]),
   _loaded: false,
 
   load: async () => {
@@ -38,9 +44,9 @@ export const usePresetStore = create<PresetState>((set, get) => ({
       if (!res.ok) throw new Error("Preset load failed");
       const presets = await res.json();
       if (!Array.isArray(presets)) throw new Error("Invalid preset response");
-      set({ presets, _loaded: true });
+      set({ presets: withSystemPresets(presets), _loaded: true });
     } catch {
-      set({ _loaded: true });
+      set({ presets: withSystemPresets([]), _loaded: true });
     }
   },
 
@@ -56,7 +62,7 @@ export const usePresetStore = create<PresetState>((set, get) => ({
       if (!res.ok) throw new Error("Preset save failed");
       const presets = await res.json();
       if (!Array.isArray(presets)) throw new Error("Invalid preset response");
-      set({ presets });
+      set({ presets: withSystemPresets(presets) });
     } catch {
       set({ presets: previous });
       toast.error("Preset could not be saved.");
@@ -64,6 +70,11 @@ export const usePresetStore = create<PresetState>((set, get) => ({
   },
 
   updatePreset: async (id, patch) => {
+    if (SYSTEM_PRESET_IDS.has(id)) {
+      toast.message("Built-in presets cannot be edited. Adjust upload options in the sidebar.");
+      return;
+    }
+
     const previous = get().presets;
     set((s) => ({
       presets: s.presets.map((p) =>
@@ -79,7 +90,7 @@ export const usePresetStore = create<PresetState>((set, get) => ({
       if (!res.ok) throw new Error("Preset update failed");
       const presets = await res.json();
       if (!Array.isArray(presets)) throw new Error("Invalid preset response");
-      set({ presets });
+      set({ presets: withSystemPresets(presets) });
     } catch {
       set({ presets: previous });
       toast.error("Preset could not be updated.");
@@ -87,6 +98,11 @@ export const usePresetStore = create<PresetState>((set, get) => ({
   },
 
   deletePreset: async (id) => {
+    if (SYSTEM_PRESET_IDS.has(id)) {
+      toast.message("Built-in presets stay available for every workspace.");
+      return;
+    }
+
     const previous = get().presets;
     set((s) => ({ presets: s.presets.filter((p) => p.id !== id) }));
     try {
@@ -98,7 +114,7 @@ export const usePresetStore = create<PresetState>((set, get) => ({
       if (!res.ok) throw new Error("Preset delete failed");
       const presets = await res.json();
       if (!Array.isArray(presets)) throw new Error("Invalid preset response");
-      set({ presets });
+      set({ presets: withSystemPresets(presets) });
     } catch {
       set({ presets: previous });
       toast.error("Preset could not be deleted.");

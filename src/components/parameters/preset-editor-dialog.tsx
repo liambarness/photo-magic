@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Preset } from "@/types";
+import type { Preset, ShotMode } from "@/types";
 import { usePresetStore, createPresetShell } from "@/stores/use-preset-store";
 import { useAppStore } from "@/stores/use-app-store";
 import { useSettingsStore } from "@/stores/use-settings-store";
@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { SHOT_MODE_OPTIONS, FRAMING_OPTIONS } from "@/lib/constants";
+import { SHOT_MODE_OPTIONS } from "@/lib/constants";
 import { Trash2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -62,15 +62,14 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
   const background = useSettingsStore((s) => s.background);
 
   const [name, setName] = useState(existing?.name ?? "");
-  const [shotMode, setShotMode] = useState<"product" | "model">(
+  const [shotMode, setShotMode] = useState<ShotMode>(
     existing?.shotMode ?? "product"
   );
-  const [framing, setFraming] = useState(existing?.framing ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
   const [saving, setSaving] = useState(false);
 
   const polishPrompt = async (
-    data: Pick<Preset, "name" | "shotMode" | "framing" | "description">
+    data: Pick<Preset, "name" | "shotMode" | "description">
   ): Promise<string> => {
     try {
       const res = await fetch("/api/polish-prompt", {
@@ -79,7 +78,6 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
         body: JSON.stringify({
           presetName: data.name,
           shotMode: data.shotMode,
-          framing: data.framing,
           description: data.description,
           brandRules,
           background,
@@ -104,7 +102,7 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
     const data = {
       name: name.trim(),
       shotMode,
-      framing: shotMode === "model" ? framing : "",
+      framing: "",
       description: description.trim(),
     };
 
@@ -179,32 +177,12 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
           </div>
           <p className="text-[11px] text-muted-foreground/60">
             {shotMode === "model"
-              ? "Product worn or held by a model. Gender and body type are set per batch."
-              : "Product only - no person in the shot."}
+              ? "Product worn or held by a model. Wearer, model, and framing are set in Shot Settings."
+              : shotMode === "touchup"
+                ? "Clean up a rough source image where the person and product already exist."
+                : "Product only - no person in the shot."}
           </p>
         </div>
-
-        {shotMode === "model" && (
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Framing</label>
-            <div className="flex w-fit flex-wrap overflow-hidden rounded-lg border">
-              {FRAMING_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => setFraming(opt.value)}
-                  className={`px-4 py-2 text-sm transition-colors ${
-                    framing === opt.value
-                      ? "bg-primary text-primary-foreground"
-                      : "hover:bg-muted"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         <div className="space-y-2">
           <label className="text-sm font-medium" htmlFor="preset-description">
@@ -217,6 +195,9 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
               <li>Clean, catalog-style lighting and aesthetic</li>
               <li>Brand rules (preserve design, no invented graphics)</li>
               {shotMode === "model" && <li>Model appearance is varied automatically</li>}
+              {shotMode === "touchup" && (
+                <li>Existing model, pose, fit, artwork, and composition are preserved</li>
+              )}
             </ul>
             <p className="pt-1 font-medium text-muted-foreground">
               Describe what makes this product type unique:
@@ -230,7 +211,11 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
             id="preset-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. casual standing pose, show print detail, hat slightly angled to show front logo..."
+            placeholder={
+              shotMode === "touchup"
+                ? "e.g. clean up rough fitting-room hoodie shots, keep logo scale and natural garment drape..."
+                : "e.g. casual standing pose, show print detail, hat slightly angled to show front logo..."
+            }
             className="min-h-36 resize-y text-base leading-relaxed"
           />
         </div>

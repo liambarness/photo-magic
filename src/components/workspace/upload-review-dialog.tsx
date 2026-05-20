@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import type { PhotoSettings, Preset } from "@/types";
+import type { ModelViewType, PhotoSettings, Preset } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -23,11 +23,23 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Check, Upload, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { uploadLimitSummary } from "@/lib/validation";
+import {
+  MODEL_PROFILE_AUTO_ID,
+  assignModelProfilesToGroups,
+  getModelPoseOption,
+  getModelProfile,
+  getModelWearerOption,
+  productGroupLabel,
+} from "@/lib/model-shot";
+import { getTouchUpStrengthOption } from "@/lib/touch-up";
 
 export interface PendingUploadItem {
   id: string;
   file: File;
   previewUrl: string;
+  productGroupId: string;
+  viewType: ModelViewType;
 }
 
 interface UploadReviewDialogProps {
@@ -46,6 +58,9 @@ interface UploadReviewDialogProps {
   additionalParameters: string;
   onPresetChange: (presetId: string) => void;
   onAdditionalParametersChange: (value: string) => void;
+  onProductGroupChange: (itemId: string, groupId: string) => void;
+  onViewTypeChange: (itemId: string, viewType: ModelViewType) => void;
+  onApplyGrouping: (strategy: "unique" | "pairs" | "single") => void;
   onAddFiles: (files: File[]) => void;
   onRemoveItem: (itemId: string) => void;
   onApprove: () => void;
@@ -58,6 +73,7 @@ function settingLabel(value: string | undefined) {
 }
 
 function sortByName(a: Preset, b: Preset) {
+  if (a.system !== b.system) return a.system ? -1 : 1;
   return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }
 
@@ -87,6 +103,31 @@ function removeButtonClass(count: number): string {
   return count > 10 ? "right-1.5 top-1.5 size-6" : "right-2 top-2 size-7";
 }
 
+function sortGroupIds(a: string, b: string): number {
+  const aNum = Number.parseInt(a, 10);
+  const bNum = Number.parseInt(b, 10);
+  if (Number.isFinite(aNum) && Number.isFinite(bNum) && aNum !== bNum) return aNum - bNum;
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function detectGroupingMode(items: PendingUploadItem[]): "unique" | "pairs" | "single" | "custom" {
+  if (items.length <= 1) return "unique";
+  if (items.every((item) => item.productGroupId === "1")) return "single";
+  if (items.every((item, index) => item.productGroupId === String(Math.floor(index / 2) + 1))) {
+    return "pairs";
+  }
+  if (items.every((item, index) => item.productGroupId === String(index + 1))) return "unique";
+  return "custom";
+}
+
+const MODEL_VIEW_OPTIONS: { value: ModelViewType; label: string }[] = [
+  { value: "unknown", label: "Auto" },
+  { value: "front", label: "Front" },
+  { value: "back", label: "Back" },
+  { value: "side", label: "Side" },
+  { value: "detail", label: "Detail" },
+];
+
 export function UploadReviewDialog({
   open,
   items,
@@ -98,6 +139,9 @@ export function UploadReviewDialog({
   additionalParameters,
   onPresetChange,
   onAdditionalParametersChange,
+  onProductGroupChange,
+  onViewTypeChange,
+  onApplyGrouping,
   onAddFiles,
   onRemoveItem,
   onApprove,
@@ -108,10 +152,41 @@ export function UploadReviewDialog({
     () => ({
       product: presets.filter((p) => p.shotMode === "product").sort(sortByName),
       model: presets.filter((p) => p.shotMode === "model").sort(sortByName),
+      touchup: presets.filter((p) => p.shotMode === "touchup").sort(sortByName),
     }),
     [presets]
   );
   const count = items.length;
+  const limitText = uploadLimitSummary();
+  const groupOptions = useMemo(
+    () =>
+      Array.from({ length: Math.max(items.length, 1) }, (_, index) => {
+        const groupId = String(index + 1);
+        return { id: groupId, label: productGroupLabel(groupId) };
+      }),
+    [items.length]
+  );
+  const modelGroups = useMemo(() => {
+    if (settings?.shotMode !== "model") return [];
+    const groupIds = Array.from(new Set(items.map((item) => item.productGroupId))).sort(sortGroupIds);
+    const wearerType = settings.modelWearerType ?? "mens";
+    const assignments = assignModelProfilesToGroups(
+      groupIds,
+      wearerType,
+      settings.modelProfileId ?? MODEL_PROFILE_AUTO_ID
+    );
+    return groupIds.map((groupId) => ({
+      groupId,
+      groupLabel: productGroupLabel(groupId),
+      profile: assignments[groupId],
+      items: items.filter((item) => item.productGroupId === groupId),
+    }));
+  }, [items, settings]);
+  const groupingMode = detectGroupingMode(items);
+  const wearer = getModelWearerOption(settings?.modelWearerType);
+  const pose = getModelPoseOption(settings?.modelPoseType);
+  const pinnedModel = getModelProfile(settings?.modelProfileId);
+  const touchUpStrength = getTouchUpStrengthOption(settings?.touchUpStrength);
 
   return (
     <Dialog
@@ -213,13 +288,27 @@ export function UploadReviewDialog({
                           ))}
                         </SelectGroup>
                       )}
-                      {groupedPresets.product.length > 0 && groupedPresets.model.length > 0 && (
+                      {groupedPresets.product.length > 0 &&
+                        (groupedPresets.model.length > 0 || groupedPresets.touchup.length > 0) && (
                         <SelectSeparator />
                       )}
                       {groupedPresets.model.length > 0 && (
                         <SelectGroup>
                           <SelectLabel>Model Shots</SelectLabel>
                           {groupedPresets.model.map((preset) => (
+                            <SelectItem key={preset.id} value={preset.id}>
+                              {preset.name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      )}
+                      {groupedPresets.model.length > 0 && groupedPresets.touchup.length > 0 && (
+                        <SelectSeparator />
+                      )}
+                      {groupedPresets.touchup.length > 0 && (
+                        <SelectGroup>
+                          <SelectLabel>Touch Ups</SelectLabel>
+                          {groupedPresets.touchup.map((preset) => (
                             <SelectItem key={preset.id} value={preset.id}>
                               {preset.name}
                             </SelectItem>
@@ -236,7 +325,13 @@ export function UploadReviewDialog({
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-muted-foreground">Shot</span>
-                  <Badge variant="outline">{settings?.shotMode === "model" ? "Model" : "Product"}</Badge>
+                  <Badge variant="outline">
+                    {settings?.shotMode === "model"
+                      ? "Model"
+                      : settings?.shotMode === "touchup"
+                        ? "Touch Up"
+                        : "Product"}
+                  </Badge>
                 </div>
                 <div className="space-y-1.5">
                   <span className="text-xs text-muted-foreground">Additional Parameters</span>
@@ -252,15 +347,152 @@ export function UploadReviewDialog({
                 </div>
                 {settings?.shotMode === "model" && (
                   <>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Gender</span>
-                      <span>{settingLabel(settings.modelGender)}</span>
+                    <div className="grid grid-cols-2 gap-2 rounded-md border bg-background/70 p-3 text-xs">
+                      <div className="space-y-0.5">
+                        <span className="text-muted-foreground">Wearer</span>
+                        <p>{wearer.label}</p>
+                      </div>
+                      <div className="space-y-0.5">
+                        <span className="text-muted-foreground">Framing</span>
+                        <p>{pose.shortLabel}</p>
+                      </div>
+                      <div className="col-span-2 space-y-0.5">
+                        <span className="text-muted-foreground">Model</span>
+                        <p>{pinnedModel?.name ?? "Auto rotate by product group"}</p>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-muted-foreground">Body</span>
-                      <span>{settingLabel(settings.modelBuild)}</span>
+                    <div className="space-y-3 rounded-md border bg-background/70 p-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-muted-foreground">Model Consistency</span>
+                          <Badge variant="outline" className="text-[10px]">
+                            same product = same model
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] leading-relaxed text-muted-foreground/70">
+                          Which images are the same product? Front and back views should share one product group.
+                        </p>
+                      </div>
+                      <div className="grid gap-1.5">
+                        <Button
+                          type="button"
+                          variant={groupingMode === "unique" ? "default" : "outline"}
+                          size="sm"
+                          className="h-auto justify-start px-3 py-2 text-left"
+                          onClick={() => onApplyGrouping("unique")}
+                        >
+                          <span className="flex flex-col items-start">
+                            <span>Different products</span>
+                            <span className="text-[11px] font-normal opacity-70">Each image can use a different model</span>
+                          </span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={groupingMode === "pairs" ? "default" : "outline"}
+                          size="sm"
+                          className="h-auto justify-start px-3 py-2 text-left"
+                          onClick={() => onApplyGrouping("pairs")}
+                        >
+                          <span className="flex flex-col items-start">
+                            <span>Front/back pairs</span>
+                            <span className="text-[11px] font-normal opacity-70">Every two images share one model</span>
+                          </span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant={groupingMode === "single" ? "default" : "outline"}
+                          size="sm"
+                          className="h-auto justify-start px-3 py-2 text-left"
+                          onClick={() => onApplyGrouping("single")}
+                        >
+                          <span className="flex flex-col items-start">
+                            <span>Same product</span>
+                            <span className="text-[11px] font-normal opacity-70">All images share one model</span>
+                          </span>
+                        </Button>
+                        {groupingMode === "custom" && (
+                          <Badge variant="outline" className="w-fit text-[10px]">
+                            Custom grouping
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="max-h-72 space-y-3 overflow-y-auto pr-1">
+                        {modelGroups.map((group) => (
+                          <div key={group.groupId} className="space-y-2 rounded-md border bg-background p-2.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-xs font-medium">{group.groupLabel}</p>
+                                <p className="truncate text-[11px] text-muted-foreground">
+                                  Model: {group.profile.name}
+                                </p>
+                              </div>
+                              <Badge variant="outline" className="shrink-0 text-[10px]">
+                                {group.items.length}
+                              </Badge>
+                            </div>
+                            <div className="grid grid-cols-[repeat(auto-fill,minmax(96px,1fr))] gap-2">
+                              {group.items.map((item) => (
+                                <div key={item.id} className="min-w-0 space-y-1.5">
+                                  <div className="relative aspect-square overflow-hidden rounded-md border bg-muted/30">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={item.previewUrl}
+                                      alt={item.file.name}
+                                      className="h-full w-full object-contain"
+                                    />
+                                  </div>
+                                  <p className="truncate text-[10px] text-muted-foreground" title={item.file.name}>
+                                    {item.file.name}
+                                  </p>
+                                  <select
+                                    value={item.productGroupId}
+                                    onChange={(e) => onProductGroupChange(item.id, e.target.value)}
+                                    className="h-7 w-full rounded-md border bg-background px-1 text-[11px]"
+                                    aria-label={`Product group for ${item.file.name}`}
+                                  >
+                                    {groupOptions.map((option) => (
+                                      <option key={option.id} value={option.id}>
+                                        {option.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <div className="flex flex-wrap gap-1">
+                                    {MODEL_VIEW_OPTIONS.map((view) => (
+                                      <button
+                                        key={view.value}
+                                        type="button"
+                                        aria-pressed={item.viewType === view.value}
+                                        onClick={() => onViewTypeChange(item.id, view.value)}
+                                        className={cn(
+                                          "rounded border px-1.5 py-0.5 text-[10px] leading-none transition-colors",
+                                          item.viewType === view.value
+                                            ? "border-foreground/40 bg-foreground text-background"
+                                            : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+                                        )}
+                                      >
+                                        {view.label}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </>
+                )}
+                {settings?.shotMode === "touchup" && (
+                  <div className="space-y-2 rounded-md border bg-background/70 p-3 text-xs">
+                    <div className="space-y-0.5">
+                      <span className="text-muted-foreground">Cleanup</span>
+                      <p>{touchUpStrength.shortLabel}</p>
+                    </div>
+                    <p className="border-t pt-2 text-[11px] leading-relaxed text-muted-foreground/70">
+                      Preserves the source model/person, pose, product fit, logo, artwork, and composition.
+                    </p>
+                  </div>
                 )}
                 <div className="grid grid-cols-2 gap-2 rounded-md border bg-background/70 p-3 text-xs">
                   <div className="space-y-0.5">
@@ -318,7 +550,7 @@ export function UploadReviewDialog({
           </Button>
           <div className="min-w-0 flex-1 text-xs text-muted-foreground">
             {selectedPresetId
-              ? `Ready to process ${count} image${count !== 1 ? "s" : ""}.`
+              ? `Ready to process ${count} image${count !== 1 ? "s" : ""}. ${limitText}.`
               : "Choose a preset before approving."}
           </div>
           <div className="flex gap-2 sm:justify-end">

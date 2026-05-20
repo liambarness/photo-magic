@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Upload } from "lucide-react";
+import { uploadLimitSummary } from "@/lib/validation";
 
 interface ImageDropAreaProps {
   onFiles: (files: File[]) => void;
@@ -11,15 +12,14 @@ interface ImageDropAreaProps {
 export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const limitText = uploadLimitSummary();
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       setDragging(false);
-      const files = Array.from(e.dataTransfer.files).filter((f) =>
-        f.type.startsWith("image/")
-      );
+      const files = Array.from(e.dataTransfer.files);
       if (files.length) onFiles(files);
     },
     [onFiles]
@@ -57,9 +57,12 @@ export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
             </span>
           </span>
           <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground sm:inline">
-            up to 50
+            limits
           </span>
         </button>
+        <p className="mx-auto mt-2 max-w-lg px-4 text-center text-[11px] text-muted-foreground/60">
+          {limitText}
+        </p>
       </div>
     );
   }
@@ -83,7 +86,7 @@ export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
           <p className="text-xs text-muted-foreground">
             Preview before processing with current settings
           </p>
-          <p className="mt-2 text-[11px] text-muted-foreground/50">PNG, JPG, WEBP - up to 50</p>
+          <p className="mt-2 text-[11px] text-muted-foreground/50">{limitText}</p>
         </button>
       </div>
     </div>
