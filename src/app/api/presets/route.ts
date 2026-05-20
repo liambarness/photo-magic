@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getPresets, addPreset, updatePreset, deletePreset } from "@/lib/server-store";
+import { cleanText, isRecord, sanitizePreset, sanitizePresetPatch } from "@/lib/validation";
 
 export async function GET() {
   const presets = await getPresets();
@@ -7,19 +8,34 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const preset = await request.json();
+  const preset = sanitizePreset(await request.json().catch(() => null));
+  if (!preset) {
+    return NextResponse.json({ error: "Invalid preset" }, { status: 400 });
+  }
+
   const presets = await addPreset(preset);
   return NextResponse.json(presets);
 }
 
 export async function PATCH(request: Request) {
-  const { id, ...patch } = await request.json();
+  const body = await request.json().catch(() => null);
+  const id = cleanText(isRecord(body) ? body.id : null, 80);
+  const patch = sanitizePresetPatch(body);
+  if (!id) {
+    return NextResponse.json({ error: "Missing preset id" }, { status: 400 });
+  }
+
   const presets = await updatePreset(id, patch);
   return NextResponse.json(presets);
 }
 
 export async function DELETE(request: Request) {
-  const { id } = await request.json();
+  const body = await request.json().catch(() => null);
+  const id = cleanText(isRecord(body) ? body.id : null, 80);
+  if (!id) {
+    return NextResponse.json({ error: "Missing preset id" }, { status: 400 });
+  }
+
   const presets = await deletePreset(id);
   return NextResponse.json(presets);
 }

@@ -30,6 +30,7 @@ export function SettingsDialog() {
   return (
     <Dialog>
       <DialogTrigger className="inline-flex items-center justify-center h-9 w-9 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer">
+        <span className="sr-only">Open settings</span>
         <Settings className="h-4 w-4" />
       </DialogTrigger>
       <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-y-auto p-6">
@@ -80,7 +81,7 @@ export function SettingsDialog() {
               Processing
             </h3>
 
-            <div className="grid grid-cols-5 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
               <div className="space-y-1.5">
                 <FieldLabel>Quality</FieldLabel>
                 <Select

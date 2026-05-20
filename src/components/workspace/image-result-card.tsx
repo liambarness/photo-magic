@@ -33,14 +33,27 @@ export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerat
     setFeedback("");
   };
 
+  const handleCardKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!isDone) return;
+    if (e.key !== "Enter" && e.key !== " ") return;
+
+    e.preventDefault();
+    onSelect();
+  };
+
   return (
     <div
-      className={`rounded-xl border bg-card overflow-hidden transition-all ${
+      className={`overflow-hidden rounded-xl border bg-card transition-all [contain-intrinsic-size:400px] [content-visibility:auto] ${
         isDone ? "cursor-pointer" : ""
       } ${
         selected ? "ring-2 ring-primary border-primary" : isDone ? "hover:border-primary/30" : ""
       }`}
+      role={isDone ? "button" : undefined}
+      tabIndex={isDone ? 0 : undefined}
+      aria-label={isDone ? `${selected ? "Deselect" : "Select"} ${photo.name}` : undefined}
+      aria-pressed={isDone ? selected : undefined}
       onClick={() => isDone && onSelect()}
+      onKeyDown={handleCardKeyDown}
     >
       <div className="relative aspect-square bg-muted/10 flex items-center justify-center overflow-hidden">
         {photo.status === "processing" && (
@@ -54,7 +67,13 @@ export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerat
         )}
         {isDone && photo.resultUrl && (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={photo.resultUrl} alt={`Result: ${photo.name}`} className="w-full h-full object-cover" />
+          <img
+            src={photo.resultUrl}
+            alt={`Result: ${photo.name}`}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            decoding="async"
+          />
         )}
         {photo.status === "error" && (
           <div className="text-center px-4">
@@ -65,7 +84,13 @@ export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerat
 
         <div className="absolute bottom-2 left-2 h-14 w-14 rounded-md border-2 border-background overflow-hidden shadow-md bg-muted/20">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photo.previewUrl} alt={photo.name} className="w-full h-full object-cover" />
+          <img
+            src={photo.previewUrl}
+            alt={photo.name}
+            className="w-full h-full object-cover"
+            loading="lazy"
+            decoding="async"
+          />
         </div>
 
         {isDone && (
@@ -106,6 +131,7 @@ export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerat
               variant="ghost"
               size="sm"
               className="h-6 text-xs shrink-0 px-2"
+              aria-label={`Redo ${photo.name}`}
               onClick={(e) => {
                 e.stopPropagation();
                 onRedo();
@@ -121,6 +147,7 @@ export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerat
           <form
             onSubmit={handleRegenerate}
             onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
             className="flex gap-1.5"
           >
             <Input
@@ -135,6 +162,7 @@ export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerat
               variant="ghost"
               className="h-7 w-7 p-0 shrink-0"
               disabled={!feedback.trim()}
+              aria-label={`Regenerate ${photo.name}`}
             >
               <Send className="h-3 w-3" />
             </Button>

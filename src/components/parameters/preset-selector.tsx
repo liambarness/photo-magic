@@ -20,6 +20,7 @@ interface PresetSelectorProps {
 
 export function PresetSelector({ onNew, onEdit }: PresetSelectorProps) {
   const presets = usePresetStore((s) => s.presets);
+  const loaded = usePresetStore((s) => s._loaded);
   const activePresetId = useAppStore((s) => s.activePreset.presetId);
   const selectPreset = useAppStore((s) => s.selectPreset);
   const clearPreset = useAppStore((s) => s.clearPreset);
@@ -29,6 +30,14 @@ export function PresetSelector({ onNew, onEdit }: PresetSelectorProps) {
       selectPreset(presets[0].id);
     }
   }, [presets, activePresetId, selectPreset]);
+
+  if (!loaded) {
+    return (
+      <div className="rounded-lg border border-dashed p-4 text-center">
+        <p className="text-sm text-muted-foreground">Loading presets...</p>
+      </div>
+    );
+  }
 
   if (presets.length === 0) {
     return (
@@ -73,6 +82,7 @@ export function PresetSelector({ onNew, onEdit }: PresetSelectorProps) {
             variant="ghost"
             size="sm"
             className="h-8 w-8 p-0 shrink-0"
+            aria-label="Edit preset"
             onClick={() => onEdit(activePresetId)}
           >
             <Pencil className="h-3.5 w-3.5" />
@@ -82,6 +92,7 @@ export function PresetSelector({ onNew, onEdit }: PresetSelectorProps) {
           variant="ghost"
           size="sm"
           className="h-8 w-8 p-0 shrink-0"
+          aria-label="Create preset"
           onClick={onNew}
         >
           <Plus className="h-3.5 w-3.5" />

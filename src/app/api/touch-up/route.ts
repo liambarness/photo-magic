@@ -3,6 +3,7 @@ import { getOpenAIClient } from "@/lib/openai";
 import { saveFile } from "@/lib/file-utils";
 import { getImageHistoryItem } from "@/lib/image-history";
 import { readBlob, blobServingUrl } from "@/lib/blob-utils";
+import { cleanFolder, cleanPathSegment, isRecord, readImageOptions } from "@/lib/validation";
 import { list } from "@vercel/blob";
 
 const MIME: Record<string, string> = {
@@ -29,7 +30,16 @@ function estimateCost(usage: Record<string, unknown> | undefined | null): number
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { folder, photoId, label, sourceUrl, prompt, imageSize, imageQuality, outputFormat } = body;
+    if (!isRecord(body)) {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+
+    const sourceUrl = typeof body.sourceUrl === "string" ? body.sourceUrl : undefined;
+    const folder = cleanFolder(body.folder);
+    const photoId = typeof body.photoId === "string" ? body.photoId : "";
+    const label = cleanPathSegment(body.label, "");
+    const prompt = typeof body.prompt === "string" ? body.prompt.slice(0, 8000) : "";
+    const { imageSize, imageQuality, outputFormat } = readImageOptions(body);
 
     if (!folder || !photoId || !prompt) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -58,8 +68,8 @@ export async function POST(request: Request) {
       type: MIME[ext] || "image/png",
     });
 
-    const format = outputFormat || "png";
-    const quality = imageQuality || "auto";
+    const format = outputFormat;
+    const quality = imageQuality;
 
     const openai = getOpenAIClient();
     const response = await openai.images.edit({
@@ -67,7 +77,7 @@ export async function POST(request: Request) {
       image: imageFile,
       prompt,
       n: 1,
-      size: (imageSize as "1024x1024" | "1536x1024" | "1024x1536") || "1024x1024",
+      size: imageSize as "1024x1024" | "1536x1024" | "1024x1536",
       quality: quality as "low" | "medium" | "high" | "auto",
       output_format: format as "png" | "jpeg" | "webp",
     });

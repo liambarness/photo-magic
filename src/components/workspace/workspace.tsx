@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useAppStore } from "@/stores/use-app-store";
 import { ImageDropArea } from "./image-drop-area";
 import { ImageResultCard } from "./image-result-card";
@@ -9,6 +9,9 @@ import { Download, CheckSquare, X } from "lucide-react";
 import { toast } from "sonner";
 import { useSettingsStore } from "@/stores/use-settings-store";
 import type { SourcePhoto } from "@/types";
+
+const INITIAL_VISIBLE_RESULTS = 24;
+const VISIBLE_RESULTS_STEP = 24;
 
 async function runPool<T>(tasks: (() => Promise<T>)[], concurrency: number): Promise<T[]> {
   const results: T[] = [];
@@ -45,6 +48,14 @@ async function saveHistory(photos: SourcePhoto[]): Promise<void> {
   if (!res.ok) throw new Error("History save failed");
 }
 
+function revokeLocalPreviews(photos: SourcePhoto[]) {
+  photos.forEach((photo) => {
+    if (photo.previewUrl.startsWith("blob:")) {
+      URL.revokeObjectURL(photo.previewUrl);
+    }
+  });
+}
+
 export function Workspace() {
   const photos = useAppStore((s) => s.photos);
   const addPhotos = useAppStore((s) => s.addPhotos);
@@ -59,11 +70,13 @@ export function Workspace() {
   const outputFormat = useSettingsStore((s) => s.outputFormat);
   const timeoutMs = useSettingsStore((s) => s.timeoutSeconds) * 1000;
   const selectedIds = useAppStore((s) => s.selectedIds);
+  const historyLoaded = useAppStore((s) => s._historyLoaded);
   const toggleSelect = useAppStore((s) => s.toggleSelect);
   const selectAll = useAppStore((s) => s.selectAll);
   const clearSelection = useAppStore((s) => s.clearSelection);
 
   const [dragging, setDragging] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_RESULTS);
   const folder = batchFolder();
 
   const processPhoto = useCallback(
@@ -146,6 +159,7 @@ export function Workspace() {
         if (!uploadRes.ok) {
           const err = await uploadRes.text();
           newPhotos.forEach((p) => setPhotoStatus(p.id, "error", null, err));
+          revokeLocalPreviews(newPhotos);
           toast.error("Upload failed");
           return;
         }
@@ -155,6 +169,8 @@ export function Workspace() {
         if (uploadData.results) {
           for (const r of uploadData.results) {
             uploadedIds.add(r.id);
+            const localPreview = newPhotos.find((photo) => photo.id === r.id)?.previewUrl;
+            if (localPreview?.startsWith("blob:")) URL.revokeObjectURL(localPreview);
             updatePhotoUpload(r.id, {
               label: r.label || "",
               previewUrl: r.servingUrl,
@@ -167,6 +183,7 @@ export function Workspace() {
         missingUploads.forEach((p) => setPhotoStatus(p.id, "error", null, "Upload did not return a source image"));
       } catch {
         newPhotos.forEach((p) => setPhotoStatus(p.id, "error", null, "Upload failed"));
+        revokeLocalPreviews(newPhotos);
         toast.error("Upload failed");
         return;
       }
@@ -273,7 +290,13 @@ export function Workspace() {
   const hasPhotos = photos.length > 0;
   const doneCount = photos.filter((p) => p.status === "done").length;
   const selectedCount = selectedIds.length;
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const visiblePhotos = useMemo(
+    () => photos.slice(0, visibleCount),
+    [photos, visibleCount]
+  );
   const totalCost = photos.reduce((sum, p) => sum + p.cost, 0);
+  const hiddenCount = Math.max(0, photos.length - visiblePhotos.length);
 
   return (
     <div
@@ -297,12 +320,21 @@ export function Workspace() {
       )}
 
       {!hasPhotos && (
-        <ImageDropArea onFiles={handleFiles} compact={false} />
+        <div className="flex flex-1 flex-col">
+          <ImageDropArea onFiles={handleFiles} compact={false} />
+          {!historyLoaded && (
+            <p className="pb-6 text-center text-xs text-muted-foreground">
+              Loading recent work...
+            </p>
+          )}
+        </div>
       )}
 
       {hasPhotos && (
         <>
-          <div className="mx-6 mt-3 flex items-center justify-between">
+          <ImageDropArea onFiles={handleFiles} compact />
+
+          <div className="mx-4 mt-3 flex flex-col gap-2 sm:mx-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
               {selectedCount > 0 ? (
                 <>
@@ -322,6 +354,7 @@ export function Workspace() {
               ) : (
                 <span className="text-xs text-muted-foreground">
                   {photos.length} result{photos.length !== 1 ? "s" : ""}
+                  {hiddenCount > 0 && ` - showing ${visiblePhotos.length}`}
                 </span>
               )}
               {totalCost > 0 && (
@@ -356,19 +389,32 @@ export function Workspace() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 pt-3">
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
-              {photos.map((photo) => (
+          <div className="flex-1 overflow-y-auto p-4 pt-3 sm:p-6 sm:pt-3">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,320px),1fr))] gap-4">
+              {visiblePhotos.map((photo) => (
                 <ImageResultCard
                   key={photo.id}
                   photo={photo}
-                  selected={selectedIds.includes(photo.id)}
+                  selected={selectedSet.has(photo.id)}
                   onSelect={() => toggleSelect(photo.id)}
                   onRedo={() => handleRedo(photo.id)}
                   onRegenerate={(fb) => handleRegenerate(photo.id, fb)}
                 />
               ))}
             </div>
+            {hiddenCount > 0 && (
+              <div className="flex justify-center pt-5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setVisibleCount((count) => count + VISIBLE_RESULTS_STEP)
+                  }
+                >
+                  Load {Math.min(VISIBLE_RESULTS_STEP, hiddenCount)} more
+                </Button>
+              </div>
+            )}
           </div>
         </>
       )}

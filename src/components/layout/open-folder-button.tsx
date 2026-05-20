@@ -24,6 +24,7 @@ export function OpenFolderButton() {
   return (
     <button
       onClick={handleOpenFolder}
+      aria-label="Open images folder"
       className="inline-flex items-center justify-center h-9 px-2.5 rounded-md hover:bg-accent hover:text-accent-foreground transition-colors cursor-pointer gap-1.5 text-xs text-muted-foreground"
     >
       <FolderOpen className="h-4 w-4" />

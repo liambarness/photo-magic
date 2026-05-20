@@ -8,8 +8,8 @@ import { Workspace } from "@/components/workspace/workspace";
 export default function Home() {
   return (
     <div className="flex flex-col h-full bg-background">
-      <header className="flex items-center justify-between px-6 h-14 border-b shrink-0">
-        <h1 className="font-heading text-2xl tracking-wide uppercase whitespace-nowrap">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b px-4 sm:px-6">
+        <h1 className="font-heading text-xl tracking-wide uppercase whitespace-nowrap sm:text-2xl">
           Photo Magic
         </h1>
         <div className="flex items-center gap-1">
@@ -18,7 +18,7 @@ export default function Home() {
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
         <ParameterSidebar />
         <Workspace />
       </div>

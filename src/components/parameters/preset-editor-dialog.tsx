@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import type { Preset } from "@/types";
 import { usePresetStore, createPresetShell } from "@/stores/use-preset-store";
 import { useAppStore } from "@/stores/use-app-store";
@@ -26,40 +26,52 @@ interface PresetEditorDialogProps {
   editId: string | null;
 }
 
+interface PresetEditorFormProps {
+  editId: string | null;
+  existing: Preset | null;
+  onOpenChange: (open: boolean) => void;
+}
+
 export function PresetEditorDialog({ open, onOpenChange, editId }: PresetEditorDialogProps) {
+  const existing = usePresetStore((s) =>
+    editId ? s.presets.find((p) => p.id === editId) ?? null : null
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {open && (
+        <PresetEditorForm
+          key={editId ?? "new"}
+          editId={editId}
+          existing={existing}
+          onOpenChange={onOpenChange}
+        />
+      )}
+    </Dialog>
+  );
+}
+
+function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormProps) {
   const addPreset = usePresetStore((s) => s.addPreset);
   const updatePreset = usePresetStore((s) => s.updatePreset);
   const deletePreset = usePresetStore((s) => s.deletePreset);
-  const existing = usePresetStore((s) => (editId ? s.presets.find((p) => p.id === editId) : null));
   const selectPreset = useAppStore((s) => s.selectPreset);
   const clearPreset = useAppStore((s) => s.clearPreset);
   const activePresetId = useAppStore((s) => s.activePreset.presetId);
   const brandRules = useSettingsStore((s) => s.brandRules);
   const background = useSettingsStore((s) => s.background);
 
-  const [name, setName] = useState("");
-  const [shotMode, setShotMode] = useState<"product" | "model">("product");
-  const [framing, setFraming] = useState("");
-  const [description, setDescription] = useState("");
+  const [name, setName] = useState(existing?.name ?? "");
+  const [shotMode, setShotMode] = useState<"product" | "model">(
+    existing?.shotMode ?? "product"
+  );
+  const [framing, setFraming] = useState(existing?.framing ?? "");
+  const [description, setDescription] = useState(existing?.description ?? "");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (open) {
-      if (existing) {
-        setName(existing.name);
-        setShotMode(existing.shotMode);
-        setFraming(existing.framing ?? "");
-        setDescription(existing.description);
-      } else {
-        setName("");
-        setShotMode("product");
-        setFraming("");
-        setDescription("");
-      }
-    }
-  }, [open, existing]);
-
-  const polishPrompt = async (data: Pick<Preset, "name" | "shotMode" | "framing" | "description">): Promise<string> => {
+  const polishPrompt = async (
+    data: Pick<Preset, "name" | "shotMode" | "framing" | "description">
+  ): Promise<string> => {
     try {
       const res = await fetch("/api/polish-prompt", {
         method: "POST",
@@ -73,15 +85,20 @@ export function PresetEditorDialog({ open, onOpenChange, editId }: PresetEditorD
           background,
         }),
       });
+      if (!res.ok) throw new Error("Prompt polish failed");
+
       const json = await res.json();
-      if (json.prompt) return json.prompt;
+      if (typeof json.prompt === "string" && json.prompt.trim()) {
+        return json.prompt;
+      }
     } catch {}
+
     const shell = { ...createPresetShell(data.name), ...data, polishedPrompt: null };
     return buildFallbackPrompt(shell, brandRules, background);
   };
 
   const handleSave = async () => {
-    if (!name.trim()) return;
+    if (!name.trim() || saving) return;
     setSaving(true);
 
     const data = {
@@ -119,32 +136,61 @@ export function PresetEditorDialog({ open, onOpenChange, editId }: PresetEditorD
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto p-6">
-        <DialogHeader>
-          <DialogTitle>{editId ? "Edit Preset" : "Create Preset"}</DialogTitle>
-        </DialogHeader>
+    <DialogContent className="max-h-[85vh] overflow-y-auto p-6 sm:max-w-md">
+      <DialogHeader>
+        <DialogTitle>{editId ? "Edit Preset" : "Create Preset"}</DialogTitle>
+      </DialogHeader>
 
-        <div className="space-y-5 mt-2">
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Product Type</label>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Trucker Hat, Boardshorts, Candle, Surfboard..."
-              className="text-sm"
-            />
+      <div className="mt-2 space-y-5">
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium" htmlFor="preset-name">
+            Product Type
+          </label>
+          <Input
+            id="preset-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="e.g. Trucker Hat, Boardshorts, Candle, Surfboard..."
+            className="text-sm"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Shot Type</label>
+          <div className="flex w-fit overflow-hidden rounded-lg border">
+            {SHOT_MODE_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setShotMode(opt.value)}
+                className={`px-4 py-1.5 text-sm transition-colors ${
+                  shotMode === opt.value
+                    ? "bg-primary text-primary-foreground"
+                    : "hover:bg-muted"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
+          <p className="text-[11px] text-muted-foreground/60">
+            {shotMode === "model"
+              ? "Product worn or held by a model. Gender and body type are set per batch."
+              : "Product only - no person in the shot."}
+          </p>
+        </div>
 
+        {shotMode === "model" && (
           <div className="space-y-1.5">
-            <label className="text-sm font-medium">Shot Type</label>
-            <div className="flex rounded-lg border overflow-hidden w-fit">
-              {SHOT_MODE_OPTIONS.map((opt) => (
+            <label className="text-sm font-medium">Framing</label>
+            <div className="flex w-fit flex-wrap overflow-hidden rounded-lg border">
+              {FRAMING_OPTIONS.map((opt) => (
                 <button
                   key={opt.value}
-                  onClick={() => setShotMode(opt.value as "product" | "model")}
-                  className={`px-4 py-1.5 text-sm transition-colors ${
-                    shotMode === opt.value
+                  type="button"
+                  onClick={() => setFraming(opt.value)}
+                  className={`px-3 py-1.5 text-sm transition-colors ${
+                    framing === opt.value
                       ? "bg-primary text-primary-foreground"
                       : "hover:bg-muted"
                   }`}
@@ -153,80 +199,59 @@ export function PresetEditorDialog({ open, onOpenChange, editId }: PresetEditorD
                 </button>
               ))}
             </div>
-            <p className="text-[11px] text-muted-foreground/60">
-              {shotMode === "model"
-                ? "Product worn or held by a model. Gender and body type are set per batch."
-                : "Product only — no person in the shot."}
+          </div>
+        )}
+
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium" htmlFor="preset-description">
+            Description
+          </label>
+          <div className="space-y-1 rounded-md bg-muted/30 p-2.5 text-[11px] text-muted-foreground/70">
+            <p className="font-medium text-muted-foreground">Already handled by the system:</p>
+            <ul className="list-disc space-y-0.5 pl-3.5">
+              <li>Light grey studio background (#EBEBEB)</li>
+              <li>Clean, catalog-style lighting and aesthetic</li>
+              <li>Brand rules (preserve design, no invented graphics)</li>
+              {shotMode === "model" && <li>Model appearance is varied automatically</li>}
+            </ul>
+            <p className="pt-1 font-medium text-muted-foreground">
+              Describe what makes this product type unique:
             </p>
+            <ul className="list-disc space-y-0.5 pl-3.5">
+              <li>What details to emphasize (logo, print, texture)</li>
+              <li>How the product should sit or drape</li>
+            </ul>
           </div>
-
-          {shotMode === "model" && (
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Framing</label>
-              <div className="flex rounded-lg border overflow-hidden w-fit">
-                {FRAMING_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setFraming(opt.value)}
-                    className={`px-3 py-1.5 text-sm transition-colors ${
-                      framing === opt.value
-                        ? "bg-primary text-primary-foreground"
-                        : "hover:bg-muted"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Description</label>
-            <div className="text-[11px] text-muted-foreground/70 bg-muted/30 rounded-md p-2.5 space-y-1">
-              <p className="font-medium text-muted-foreground">Already handled by the system:</p>
-              <ul className="list-disc pl-3.5 space-y-0.5">
-                <li>Light grey studio background (#EBEBEB)</li>
-                <li>Clean, catalog-style lighting and aesthetic</li>
-                <li>Brand rules (preserve design, no invented graphics)</li>
-                {shotMode === "model" && <li>Model appearance is varied automatically</li>}
-              </ul>
-              <p className="font-medium text-muted-foreground pt-1">Describe what makes this product type unique:</p>
-              <ul className="list-disc pl-3.5 space-y-0.5">
-                <li>What details to emphasize (logo, print, texture)</li>
-                <li>How the product should sit or drape</li>
-              </ul>
-            </div>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. casual standing pose, show print detail, hat slightly angled to show front logo..."
-              className="text-sm min-h-24 resize-y"
-            />
-          </div>
+          <Textarea
+            id="preset-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="e.g. casual standing pose, show print detail, hat slightly angled to show front logo..."
+            className="min-h-24 resize-y text-sm"
+          />
         </div>
+      </div>
 
-        <DialogFooter className="mt-4">
-          {editId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-destructive hover:text-destructive mr-auto"
-              onClick={handleDelete}
-            >
-              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-              Delete
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
-            Cancel
+      <DialogFooter className="mt-4">
+        {editId && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mr-auto text-destructive hover:text-destructive"
+            onClick={handleDelete}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Delete
           </Button>
-          <Button size="sm" onClick={handleSave} disabled={!name.trim() || saving}>
-            {saving && <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />}
-            {editId ? "Save" : "Create"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        )}
+        <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={handleSave} disabled={!name.trim() || saving}>
+          {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+          {editId ? "Save" : "Create"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }

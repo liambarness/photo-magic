@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai";
+import { cleanText, isRecord } from "@/lib/validation";
 
 const SYSTEM_PROMPT = `You are a prompt writer for an AI product photography tool that uses gpt-image-2.
 Given a product preset, write ONE cohesive image-generation prompt.
@@ -20,7 +21,16 @@ Rules:
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { presetName, shotMode, framing, description, brandRules, background } = body;
+    if (!isRecord(body)) {
+      return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
+    }
+
+    const presetName = cleanText(body.presetName, 120);
+    const shotMode = body.shotMode === "model" ? "model" : body.shotMode === "product" ? "product" : "";
+    const framing = cleanText(body.framing, 300);
+    const description = cleanText(body.description, 5000);
+    const brandRules = cleanText(body.brandRules, 5000);
+    const background = cleanText(body.background, 2000);
 
     if (!presetName || !shotMode) {
       return NextResponse.json({ error: "Missing preset info" }, { status: 400 });

@@ -35,7 +35,9 @@ export const usePresetStore = create<PresetState>((set, get) => ({
   load: async () => {
     try {
       const res = await fetch("/api/presets");
+      if (!res.ok) throw new Error("Preset load failed");
       const presets = await res.json();
+      if (!Array.isArray(presets)) throw new Error("Invalid preset response");
       set({ presets, _loaded: true });
     } catch {
       set({ _loaded: true });
@@ -53,6 +55,7 @@ export const usePresetStore = create<PresetState>((set, get) => ({
       });
       if (!res.ok) throw new Error("Preset save failed");
       const presets = await res.json();
+      if (!Array.isArray(presets)) throw new Error("Invalid preset response");
       set({ presets });
     } catch {
       set({ presets: previous });
@@ -75,6 +78,7 @@ export const usePresetStore = create<PresetState>((set, get) => ({
       });
       if (!res.ok) throw new Error("Preset update failed");
       const presets = await res.json();
+      if (!Array.isArray(presets)) throw new Error("Invalid preset response");
       set({ presets });
     } catch {
       set({ presets: previous });
@@ -93,6 +97,7 @@ export const usePresetStore = create<PresetState>((set, get) => ({
       });
       if (!res.ok) throw new Error("Preset delete failed");
       const presets = await res.json();
+      if (!Array.isArray(presets)) throw new Error("Invalid preset response");
       set({ presets });
     } catch {
       set({ presets: previous });
