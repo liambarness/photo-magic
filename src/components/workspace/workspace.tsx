@@ -406,7 +406,7 @@ export function Workspace() {
         .map((result) => result.uploaded);
 
       if (uploadedItems.length === 0) {
-        toast.error("Upload failed");
+        toast.error("Upload failed", { id: "upload-failed" });
         return;
       }
 
@@ -427,7 +427,7 @@ export function Workspace() {
           const message = typeof err?.error === "string" ? err.error : "Upload failed";
           await cleanupUploadedBlobs(uploadedItems);
           uploadedItems.forEach((item) => setPhotoStatus(item.id, "error", null, message));
-          toast.error("Upload failed");
+          toast.error("Upload failed", { id: "upload-failed" });
           return;
         }
 
@@ -453,7 +453,7 @@ export function Workspace() {
       } catch {
         await cleanupUploadedBlobs(uploadedItems);
         uploadedItems.forEach((item) => setPhotoStatus(item.id, "error", null, "Upload failed"));
-        toast.error("Upload failed");
+        toast.error("Upload failed", { id: "upload-failed" });
         return;
       }
 
@@ -747,7 +747,7 @@ export function Workspace() {
       const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
       const prompt = photo?.usedSettings.finalPrompt || getActivePrompt();
       if (!prompt) {
-        toast.error("No prompt available. Select a preset first.");
+        toast.error("No prompt available. Select a preset first.", { id: "no-prompt" });
         return;
       }
       resetSinglePhoto(photoId);
@@ -767,7 +767,7 @@ export function Workspace() {
       const photo = useAppStore.getState().photos.find((p) => p.id === photoId);
       const prompt = photo?.usedSettings.finalPrompt || getActivePrompt();
       if (!prompt) {
-        toast.error("No prompt available. Select a preset first.");
+        toast.error("No prompt available. Select a preset first.", { id: "no-prompt" });
         return;
       }
       resetSinglePhoto(photoId);

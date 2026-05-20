@@ -22,7 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Copy, Maximize2, Save } from "lucide-react";
+import { Copy, Maximize2, Save, X } from "lucide-react";
 import { PresetSelector } from "./preset-selector";
 import { PresetEditorDialog } from "./preset-editor-dialog";
 import { toast } from "sonner";
@@ -82,7 +82,13 @@ export function ParameterSidebar() {
 
   const handleSaveNotes = () => {
     saveNotes();
-    toast.success("Parameters saved");
+    toast.success("Parameters saved", { id: "params-saved" });
+  };
+
+  const handleClearNotes = () => {
+    updateNotes("");
+    saveNotes();
+    toast.success("Parameters cleared", { id: "params-saved" });
   };
 
   const preset = usePresetStore((s) =>
@@ -279,16 +285,29 @@ export function ParameterSidebar() {
                 <p className="text-[11px] text-muted-foreground/60">
                   Saved with this preset and appended to every upload.
                 </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1.5 px-2.5 text-xs"
-                  onClick={handleSaveNotes}
-                >
-                  <Save className="h-3.5 w-3.5" />
-                  Save
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 px-2.5 text-xs text-muted-foreground"
+                    onClick={handleClearNotes}
+                    disabled={!activePreset.notes.trim()}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Clear
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 gap-1.5 px-2.5 text-xs"
+                    onClick={handleSaveNotes}
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    Save
+                  </Button>
+                </div>
               </div>
             </div>
 
