@@ -1,13 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
-  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const router = useRouter();
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -15,6 +12,9 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
+      const formData = new FormData(e.currentTarget as HTMLFormElement);
+      const password = String(formData.get("password") ?? "");
+
       const res = await fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -22,7 +22,7 @@ export default function LoginPage() {
       });
 
       if (res.ok) {
-        router.push("/");
+        window.location.assign("/");
       } else {
         setError("Wrong password");
       }
@@ -35,20 +35,29 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
-      <form onSubmit={handleSubmit} className="w-full max-w-xs space-y-4">
+      <form
+        action="/api/login"
+        method="post"
+        onSubmit={handleSubmit}
+        className="w-full max-w-xs space-y-4"
+      >
         <h1 className="text-xl font-bold text-center">Photo Magic</h1>
+        <label className="sr-only" htmlFor="password">
+          Password
+        </label>
         <input
+          id="password"
+          name="password"
           type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
           placeholder="Password"
           autoFocus
+          required
           className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
         />
         {error && <p className="text-sm text-destructive text-center">{error}</p>}
         <button
           type="submit"
-          disabled={loading || !password}
+          disabled={loading}
           className="w-full h-10 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 cursor-pointer"
         >
           {loading ? "..." : "Sign In"}

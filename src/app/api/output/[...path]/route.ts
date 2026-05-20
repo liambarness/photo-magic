@@ -18,12 +18,16 @@ export async function GET(
   try {
     const { path: segments } = await params;
     const relativePath = segments.join("/");
+    const outputDir = path.resolve(process.cwd(), "output");
 
     if (relativePath.includes("..")) {
       return NextResponse.json({ error: "Invalid path" }, { status: 400 });
     }
 
-    const filePath = path.join(process.cwd(), "output", relativePath);
+    const filePath = path.resolve(outputDir, relativePath);
+    if (!filePath.startsWith(outputDir + path.sep)) {
+      return NextResponse.json({ error: "Invalid path" }, { status: 400 });
+    }
 
     if (!existsSync(filePath)) {
       return NextResponse.json({ error: "File not found" }, { status: 404 });

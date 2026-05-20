@@ -3,6 +3,8 @@ import { blobServingUrl, blobStorageUrl, putBlob, readBlobJson } from "@/lib/blo
 
 const HISTORY_KEY = "data/image-history.json";
 const MAX_HISTORY_ITEMS = 500;
+const HISTORY_CACHE_TTL_MS = 15_000;
+const STALE_PENDING_MS = 1000 * 60 * 30;
 
 export interface ImageHistoryItem {
   id: string;
@@ -24,13 +26,31 @@ interface ImageHistoryData {
   items: ImageHistoryItem[];
 }
 
+let historyQueue = Promise.resolve();
+let historyCache: { value: ImageHistoryItem[]; expiresAt: number } | null = null;
+
+function withHistoryLock<T>(operation: () => Promise<T>): Promise<T> {
+  const next = historyQueue.then(operation, operation);
+  historyQueue = next.then(
+    () => undefined,
+    () => undefined
+  );
+  return next;
+}
+
 async function readHistoryData(): Promise<ImageHistoryData> {
+  if (historyCache && historyCache.expiresAt > Date.now()) {
+    return { items: [...historyCache.value] };
+  }
+
   const data = await readBlobJson<Partial<ImageHistoryData>>(HISTORY_KEY);
-  return { items: Array.isArray(data?.items) ? data.items : [] };
+  const items = Array.isArray(data?.items) ? data.items : [];
+  historyCache = { value: items, expiresAt: Date.now() + HISTORY_CACHE_TTL_MS };
+  return { items };
 }
 
 export async function clearImageHistory(): Promise<void> {
-  await writeHistoryData({ items: [] });
+  await withHistoryLock(() => writeHistoryData({ items: [] }));
 }
 
 async function writeHistoryData(data: ImageHistoryData): Promise<void> {
@@ -41,6 +61,7 @@ async function writeHistoryData(data: ImageHistoryData): Promise<void> {
   await putBlob(HISTORY_KEY, JSON.stringify({ items }, null, 2), {
     contentType: "application/json",
   });
+  historyCache = { value: items, expiresAt: Date.now() + HISTORY_CACHE_TTL_MS };
 }
 
 export async function getImageHistory(): Promise<ImageHistoryItem[]> {
@@ -60,16 +81,18 @@ export async function updateImageHistoryItem(
     "resultUrl" | "status" | "error" | "cost" | "usage" | "label" | "batchFolder" | "sourceUrl"
   >>
 ): Promise<void> {
-  const data = await readHistoryData();
-  const item = data.items.find((entry) => entry.id === id);
-  if (!item) return;
+  await withHistoryLock(async () => {
+    const data = await readHistoryData();
+    const item = data.items.find((entry) => entry.id === id);
+    if (!item) return;
 
-  Object.assign(item, {
-    ...patch,
-    updatedAt: Date.now(),
+    Object.assign(item, {
+      ...patch,
+      updatedAt: Date.now(),
+    });
+
+    await writeHistoryData(data);
   });
-
-  await writeHistoryData(data);
 }
 
 export async function upsertSourceImage(input: {
@@ -80,89 +103,98 @@ export async function upsertSourceImage(input: {
   sourceUrl: string;
   usedSettings: PhotoSettings;
 }): Promise<void> {
-  const data = await readHistoryData();
-  const now = Date.now();
-  const existing = data.items.find((item) => item.id === input.id);
-
-  if (existing) {
-    Object.assign(existing, {
-      name: input.name,
-      label: input.label,
-      batchFolder: input.batchFolder,
-      sourceUrl: input.sourceUrl,
-      usedSettings: input.usedSettings,
-      updatedAt: now,
-    });
-  } else {
-    data.items.unshift({
-      id: input.id,
-      name: input.name,
-      label: input.label,
-      batchFolder: input.batchFolder,
-      sourceUrl: input.sourceUrl,
-      resultUrl: null,
-      status: "pending",
-      error: null,
-      usedSettings: input.usedSettings,
-      cost: 0,
-      usage: null,
-      createdAt: now,
-      updatedAt: now,
-    });
-  }
-
-  await writeHistoryData(data);
-}
-
-export async function mergeSourcePhotos(photos: SourcePhoto[]): Promise<void> {
-  const data = await readHistoryData();
-  const now = Date.now();
-
-  for (const photo of photos) {
-    const rawSource = photo.serverPath ?? photo.previewUrl;
-    if (!rawSource || rawSource.startsWith("blob:")) continue;
-    const sourceUrl = blobStorageUrl(rawSource);
-
-    const resultUrl = photo.resultUrl ? blobStorageUrl(photo.resultUrl) : null;
-    const existing = data.items.find((entry) => entry.id === photo.id);
+  await withHistoryLock(async () => {
+    const data = await readHistoryData();
+    const now = Date.now();
+    const existing = data.items.find((item) => item.id === input.id);
 
     if (existing) {
       Object.assign(existing, {
-        name: photo.name,
-        label: photo.label,
-        batchFolder: photo.batchFolder,
-        sourceUrl,
-        resultUrl,
-        status: photo.status,
-        error: photo.error,
-        usedSettings: photo.usedSettings,
-        cost: photo.cost,
-        usage: photo.usage,
+        name: input.name,
+        label: input.label,
+        batchFolder: input.batchFolder,
+        sourceUrl: input.sourceUrl,
+        usedSettings: input.usedSettings,
         updatedAt: now,
       });
     } else {
       data.items.unshift({
-        id: photo.id,
-        name: photo.name,
-        label: photo.label,
-        batchFolder: photo.batchFolder,
-        sourceUrl,
-        resultUrl,
-        status: photo.status,
-        error: photo.error,
-        usedSettings: photo.usedSettings,
-        cost: photo.cost,
-        usage: photo.usage,
-        createdAt: photo.createdAt ?? now,
+        id: input.id,
+        name: input.name,
+        label: input.label,
+        batchFolder: input.batchFolder,
+        sourceUrl: input.sourceUrl,
+        resultUrl: null,
+        status: "pending",
+        error: null,
+        usedSettings: input.usedSettings,
+        cost: 0,
+        usage: null,
+        createdAt: now,
         updatedAt: now,
       });
     }
-  }
 
-  await writeHistoryData(data);
+    await writeHistoryData(data);
+  });
+}
+
+export async function mergeSourcePhotos(photos: SourcePhoto[]): Promise<void> {
+  await withHistoryLock(async () => {
+    const data = await readHistoryData();
+    const now = Date.now();
+
+    for (const photo of photos) {
+      const rawSource = photo.serverPath ?? photo.previewUrl;
+      if (!rawSource || rawSource.startsWith("blob:")) continue;
+      const sourceUrl = blobStorageUrl(rawSource);
+
+      const resultUrl = photo.resultUrl ? blobStorageUrl(photo.resultUrl) : null;
+      const existing = data.items.find((entry) => entry.id === photo.id);
+
+      if (existing) {
+        Object.assign(existing, {
+          name: photo.name,
+          label: photo.label,
+          batchFolder: photo.batchFolder,
+          sourceUrl,
+          resultUrl,
+          status: photo.status,
+          error: photo.error,
+          usedSettings: photo.usedSettings,
+          cost: photo.cost,
+          usage: photo.usage,
+          updatedAt: now,
+        });
+      } else {
+        data.items.unshift({
+          id: photo.id,
+          name: photo.name,
+          label: photo.label,
+          batchFolder: photo.batchFolder,
+          sourceUrl,
+          resultUrl,
+          status: photo.status,
+          error: photo.error,
+          usedSettings: photo.usedSettings,
+          cost: photo.cost,
+          usage: photo.usage,
+          createdAt: photo.createdAt ?? now,
+          updatedAt: now,
+        });
+      }
+    }
+
+    await writeHistoryData(data);
+  });
 }
 
 export function historyItemToSourcePhoto(item: ImageHistoryItem): SourcePhoto {
+  const isStalePending =
+    !item.resultUrl &&
+    (item.status === "pending" || item.status === "processing") &&
+    Date.now() - item.updatedAt > STALE_PENDING_MS;
+
   return {
     id: item.id,
     name: item.name,
@@ -170,9 +202,15 @@ export function historyItemToSourcePhoto(item: ImageHistoryItem): SourcePhoto {
     batchFolder: item.batchFolder,
     previewUrl: blobServingUrl(item.sourceUrl),
     serverPath: item.sourceUrl,
-    status: item.status === "processing" ? "pending" : item.status,
+    status: isStalePending
+      ? "error"
+      : item.status === "processing"
+        ? "pending"
+        : item.status,
     resultUrl: item.resultUrl ? blobServingUrl(item.resultUrl) : null,
-    error: item.error,
+    error: isStalePending
+      ? "Incomplete run. The source uploaded, but no final render was saved."
+      : item.error,
     usedSettings: item.usedSettings,
     cost: item.cost,
     usage: item.usage,

@@ -37,21 +37,22 @@ export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
   if (compact) {
     return (
       <div className="mx-6 mt-4 shrink-0">
-        <div
+        <input ref={inputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleChange} />
+        <button
+          type="button"
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
           onDragLeave={(e) => { e.stopPropagation(); setDragging(false); }}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
-          className={`border-2 border-dashed rounded-lg px-4 py-2.5 flex items-center gap-3 cursor-pointer transition-colors ${
+          className={`flex w-full items-center gap-3 rounded-lg border-2 border-dashed px-4 py-2.5 text-left transition-colors ${
             dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
           }`}
         >
-          <input ref={inputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleChange} />
           <Upload className="h-4 w-4 text-muted-foreground shrink-0" />
           <span className="text-sm text-muted-foreground">
             Drop more or <span className="text-primary underline underline-offset-2">browse</span>
           </span>
-        </div>
+        </button>
       </div>
     );
   }
@@ -59,23 +60,24 @@ export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
   return (
     <div className="flex-1 flex items-center justify-center p-8">
       <div className="w-full max-w-md text-center">
-        <div
+        <input ref={inputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleChange} />
+        <button
+          type="button"
           onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragging(true); }}
           onDragLeave={(e) => { e.stopPropagation(); setDragging(false); }}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl px-8 py-12 cursor-pointer transition-all ${
+          className={`w-full rounded-xl border-2 border-dashed px-8 py-12 text-center transition-all ${
             dragging ? "border-primary bg-primary/5 scale-[1.02]" : "border-border hover:border-primary/50"
           }`}
         >
-          <input ref={inputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleChange} />
           <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
           <p className="text-sm font-medium mb-1">Drop product photos</p>
           <p className="text-xs text-muted-foreground">
             Processes immediately with current settings
           </p>
           <p className="text-[11px] text-muted-foreground/50 mt-2">PNG, JPG, WEBP</p>
-        </div>
+        </button>
       </div>
     </div>
   );

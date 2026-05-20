@@ -105,7 +105,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addPhotos: (photos) => {
-    set((s) => ({ photos: [...s.photos, ...photos] }));
+    set((s) => ({ photos: [...photos, ...s.photos] }));
   },
 
   loadHistory: async () => {
@@ -113,9 +113,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       const res = await fetch("/api/history");
       if (!res.ok) throw new Error("History load failed");
       const data = (await res.json()) as { photos?: SourcePhoto[] };
+      if (!Array.isArray(data.photos)) throw new Error("Invalid history response");
+      const loadedPhotos = data.photos;
       set((s) => {
         const existingIds = new Set(s.photos.map((p) => p.id));
-        const history = (data.photos ?? []).filter((p) => !existingIds.has(p.id));
+        const history = loadedPhotos.filter((p) => !existingIds.has(p.id));
         return {
           photos: [...history, ...s.photos],
           _historyLoaded: true,

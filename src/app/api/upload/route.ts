@@ -3,17 +3,23 @@ import { getOpenAIClient } from "@/lib/openai";
 import { saveFile } from "@/lib/file-utils";
 import { upsertSourceImage } from "@/lib/image-history";
 import { blobServingUrl } from "@/lib/blob-utils";
+import {
+  MAX_UPLOAD_FILES,
+  cleanExtension,
+  cleanFolder,
+  cleanPathSegment,
+  validateImageFile,
+} from "@/lib/validation";
 import type { PhotoSettings } from "@/types";
 
 async function classifyImage(
-  file: File,
+  buffer: Buffer,
+  mime: string,
   product: string,
   shotType: string
 ): Promise<string> {
   try {
-    const buffer = Buffer.from(await file.arrayBuffer());
     const base64 = buffer.toString("base64");
-    const mime = file.type || "image/png";
 
     const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
@@ -55,7 +61,7 @@ Reply with ONLY a short filename-safe label (lowercase, hyphens, no extension). 
 export async function POST(request: Request) {
   try {
     const formData = await request.formData();
-    const folder = formData.get("folder") as string;
+    const folder = cleanFolder(formData.get("folder"));
     const files = formData.getAll("files") as File[];
     const ids = formData.getAll("ids") as string[];
     const product = (formData.get("product") as string) || "";
@@ -65,19 +71,28 @@ export async function POST(request: Request) {
     if (!folder || files.length === 0) {
       return NextResponse.json({ error: "Missing folder or files" }, { status: 400 });
     }
+    if (files.length > MAX_UPLOAD_FILES) {
+      return NextResponse.json({ error: `Upload up to ${MAX_UPLOAD_FILES} files at a time` }, { status: 400 });
+    }
 
     const results = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
       const id = ids[i] || crypto.randomUUID();
-      const ext = file.name.split(".").pop() || "png";
+      const validationError = validateImageFile(file);
+      if (validationError) {
+        return NextResponse.json({ error: validationError }, { status: 400 });
+      }
 
-      const label = await classifyImage(file, product, shotType);
+      const ext = cleanExtension(file.name);
+      const buffer = Buffer.from(await file.arrayBuffer());
+      const mime = file.type || "image/png";
+
+      const label = cleanPathSegment(await classifyImage(buffer, mime, product, shotType), "product");
       const subfolder = `${folder}/${label}`;
       const sourceFilename = `source_${id.slice(0, 8)}.${ext}`;
 
-      const buffer = Buffer.from(await file.arrayBuffer());
       const blobUrl = await saveFile(subfolder, sourceFilename, buffer);
       await upsertSourceImage({
         id,

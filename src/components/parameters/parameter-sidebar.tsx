@@ -44,7 +44,7 @@ export function ParameterSidebar() {
   const buildLabel = MODEL_BUILD_OPTIONS.find((o) => o.value === activePreset.modelBuild)?.label ?? "Varied";
 
   return (
-    <div className="w-[260px] border-r flex flex-col shrink-0 overflow-y-auto">
+    <div className="max-h-[45vh] w-full shrink-0 overflow-y-auto border-b md:max-h-none md:w-[260px] md:border-b-0 md:border-r">
       <div className="px-4 py-3 border-b">
         <h2 className="text-sm font-semibold">Shot Settings</h2>
       </div>

@@ -8,6 +8,9 @@ export async function GET(request: Request) {
   if (!blobUrl) {
     return NextResponse.json({ error: "Missing blob URL" }, { status: 400 });
   }
+  if (blobUrl.length > 2048) {
+    return NextResponse.json({ error: "Invalid blob URL" }, { status: 400 });
+  }
 
   try {
     const blob = await readBlob(blobUrl);
