@@ -131,7 +131,7 @@ export async function POST(request: Request) {
   }
 
   const filesInZip = Object.keys(zip.files).filter((f) => !zip.files[f].dir).length;
-  const zipBuffer = await zip.generateAsync({ type: "uint8array", compression: "DEFLATE", compressionOptions: { level: 5 } });
+  const zipBuffer = await zip.generateAsync({ type: "arraybuffer", compression: "DEFLATE", compressionOptions: { level: 5 } });
 
   return new Response(zipBuffer, {
     headers: {
