@@ -12,6 +12,21 @@ import {
 } from "@/lib/validation";
 import type { PhotoSettings } from "@/types";
 
+async function runPool<T>(tasks: Array<() => Promise<T>>, concurrency: number): Promise<T[]> {
+  const results: T[] = [];
+  let index = 0;
+
+  async function next(): Promise<void> {
+    const current = index++;
+    if (current >= tasks.length) return;
+    results[current] = await tasks[current]();
+    await next();
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => next()));
+  return results;
+}
+
 async function classifyImage(
   buffer: Buffer,
   mime: string,
@@ -75,16 +90,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: `Upload up to ${MAX_UPLOAD_FILES} files at a time` }, { status: 400 });
     }
 
-    const results = [];
+    const uploadItems = files.map((file, index) => ({
+      file,
+      id: ids[index] || crypto.randomUUID(),
+    }));
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const id = ids[i] || crypto.randomUUID();
+    for (const { file } of uploadItems) {
       const validationError = validateImageFile(file);
       if (validationError) {
         return NextResponse.json({ error: validationError }, { status: 400 });
       }
+    }
 
+    const results = await runPool(uploadItems.map(({ file, id }) => async () => {
       const ext = cleanExtension(file.name);
       const buffer = Buffer.from(await file.arrayBuffer());
       const mime = file.type || "image/png";
@@ -103,13 +121,13 @@ export async function POST(request: Request) {
         usedSettings: settings,
       });
 
-      results.push({
+      return {
         id,
         label,
         serverPath: blobUrl,
         servingUrl: blobServingUrl(blobUrl),
-      });
-    }
+      };
+    }), 4);
 
     return NextResponse.json({ results });
   } catch (err) {
@@ -130,6 +148,10 @@ function parsePhotoSettings(
         presetId: parsed.presetId ?? null,
         presetName: parsed.presetName || product || "None",
         shotMode: parsed.shotMode === "model" ? "model" : "product",
+        modelGender: typeof parsed.modelGender === "string" ? parsed.modelGender.slice(0, 80) : undefined,
+        modelBuild: typeof parsed.modelBuild === "string" ? parsed.modelBuild.slice(0, 80) : undefined,
+        notes: typeof parsed.notes === "string" ? parsed.notes.slice(0, 1000) : undefined,
+        finalPrompt: typeof parsed.finalPrompt === "string" ? parsed.finalPrompt.slice(0, 8000) : null,
       };
     }
   } catch {}

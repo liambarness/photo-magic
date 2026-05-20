@@ -1,5 +1,6 @@
 import type { PhotoSettings, SourcePhoto, TokenUsage } from "@/types";
-import { blobServingUrl, blobStorageUrl, putBlob, readBlobJson } from "@/lib/blob-utils";
+import { blobServingUrl, blobStorageUrl, deleteBlobs, putBlob, readBlobJson } from "@/lib/blob-utils";
+import { list } from "@vercel/blob";
 
 const HISTORY_KEY = "data/image-history.json";
 const MAX_HISTORY_ITEMS = 500;
@@ -16,6 +17,7 @@ export interface ImageHistoryItem {
   status: SourcePhoto["status"];
   error: string | null;
   usedSettings: PhotoSettings;
+  visibility: SourcePhoto["visibility"];
   cost: number;
   usage: TokenUsage | null;
   createdAt: number;
@@ -78,7 +80,7 @@ export async function updateImageHistoryItem(
   id: string,
   patch: Partial<Pick<
     ImageHistoryItem,
-    "resultUrl" | "status" | "error" | "cost" | "usage" | "label" | "batchFolder" | "sourceUrl"
+    "resultUrl" | "status" | "error" | "cost" | "usage" | "label" | "batchFolder" | "sourceUrl" | "visibility"
   >>
 ): Promise<void> {
   await withHistoryLock(async () => {
@@ -93,6 +95,72 @@ export async function updateImageHistoryItem(
 
     await writeHistoryData(data);
   });
+}
+
+export async function updateImageHistoryVisibility(
+  ids: string[],
+  visibility: SourcePhoto["visibility"]
+): Promise<void> {
+  const idSet = new Set(ids);
+  if (idSet.size === 0) return;
+
+  await withHistoryLock(async () => {
+    const data = await readHistoryData();
+    const now = Date.now();
+    let changed = false;
+
+    for (const item of data.items) {
+      if (!idSet.has(item.id)) continue;
+      item.visibility = visibility;
+      item.updatedAt = now;
+      changed = true;
+    }
+
+    if (changed) await writeHistoryData(data);
+  });
+}
+
+export async function deleteImageHistoryItems(ids: string[]): Promise<number> {
+  const idSet = new Set(ids);
+  if (idSet.size === 0) return 0;
+
+  return withHistoryLock(async () => {
+    const data = await readHistoryData();
+    const toDelete = data.items.filter((item) => idSet.has(item.id));
+    if (toDelete.length === 0) return 0;
+
+    const urls = await collectDeleteUrls(toDelete);
+    try {
+      await deleteBlobs(urls);
+    } catch (err) {
+      console.error("Blob delete failed:", err);
+    }
+
+    data.items = data.items.filter((item) => !idSet.has(item.id));
+    await writeHistoryData(data);
+    return toDelete.length;
+  });
+}
+
+async function collectDeleteUrls(items: ImageHistoryItem[]): Promise<Array<string | null>> {
+  const urls = items.flatMap((item) => [item.sourceUrl, item.resultUrl]);
+
+  for (const item of items) {
+    const idPrefix = `_${item.id.slice(0, 8)}.`;
+    const prefix = item.label ? `${item.batchFolder}/${item.label}/` : `${item.batchFolder}/`;
+    try {
+      const blobs = await list({ prefix });
+      urls.push(
+        ...blobs.blobs
+          .filter((blob) => blob.pathname.includes(idPrefix))
+          .map((blob) => blob.url)
+      );
+    } catch (err) {
+      console.error("Blob delete listing failed:", err);
+    }
+  }
+
+  return urls;
 }
 
 export async function upsertSourceImage(input: {
@@ -128,6 +196,7 @@ export async function upsertSourceImage(input: {
         status: "pending",
         error: null,
         usedSettings: input.usedSettings,
+        visibility: "active",
         cost: 0,
         usage: null,
         createdAt: now,
@@ -162,6 +231,7 @@ export async function mergeSourcePhotos(photos: SourcePhoto[]): Promise<void> {
           status: photo.status,
           error: photo.error,
           usedSettings: photo.usedSettings,
+          visibility: photo.visibility ?? existing.visibility ?? "active",
           cost: photo.cost,
           usage: photo.usage,
           updatedAt: now,
@@ -177,6 +247,7 @@ export async function mergeSourcePhotos(photos: SourcePhoto[]): Promise<void> {
           status: photo.status,
           error: photo.error,
           usedSettings: photo.usedSettings,
+          visibility: photo.visibility ?? "active",
           cost: photo.cost,
           usage: photo.usage,
           createdAt: photo.createdAt ?? now,
@@ -187,6 +258,18 @@ export async function mergeSourcePhotos(photos: SourcePhoto[]): Promise<void> {
 
     await writeHistoryData(data);
   });
+}
+
+function normalizePhotoSettings(settings: Partial<PhotoSettings> | null | undefined): PhotoSettings {
+  return {
+    presetId: typeof settings?.presetId === "string" ? settings.presetId : null,
+    presetName: settings?.presetName || "None",
+    shotMode: settings?.shotMode === "model" ? "model" : "product",
+    modelGender: typeof settings?.modelGender === "string" ? settings.modelGender : undefined,
+    modelBuild: typeof settings?.modelBuild === "string" ? settings.modelBuild : undefined,
+    notes: typeof settings?.notes === "string" ? settings.notes : undefined,
+    finalPrompt: typeof settings?.finalPrompt === "string" ? settings.finalPrompt : null,
+  };
 }
 
 export function historyItemToSourcePhoto(item: ImageHistoryItem): SourcePhoto {
@@ -211,7 +294,8 @@ export function historyItemToSourcePhoto(item: ImageHistoryItem): SourcePhoto {
     error: isStalePending
       ? "Incomplete run. The source uploaded, but no final render was saved."
       : item.error,
-    usedSettings: item.usedSettings,
+    usedSettings: normalizePhotoSettings(item.usedSettings),
+    visibility: item.visibility ?? "active",
     cost: item.cost,
     usage: item.usage,
     createdAt: item.createdAt,

@@ -5,14 +5,18 @@ import type { SourcePhoto } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { RotateCcw, Loader2, AlertCircle, Check, Send } from "lucide-react";
+import { RotateCcw, Loader2, AlertCircle, Check, Send, Archive, RotateCcwSquare, Trash2 } from "lucide-react";
 
 interface ImageResultCardProps {
   photo: SourcePhoto;
   selected: boolean;
+  imageReady: boolean;
   onSelect: () => void;
   onRedo: () => void;
   onRegenerate: (feedback: string) => void;
+  onArchive: () => void;
+  onRestore: () => void;
+  onDelete: () => void;
 }
 
 function settingsSummary(photo: SourcePhoto): string {
@@ -20,9 +24,21 @@ function settingsSummary(photo: SourcePhoto): string {
   return photo.usedSettings.presetName || photo.name;
 }
 
-export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerate }: ImageResultCardProps) {
+export function ImageResultCard({
+  photo,
+  selected,
+  imageReady,
+  onSelect,
+  onRedo,
+  onRegenerate,
+  onArchive,
+  onRestore,
+  onDelete,
+}: ImageResultCardProps) {
   const isDone = photo.status === "done";
   const isFinished = isDone || photo.status === "error";
+  const isArchived = photo.visibility === "archived";
+  const pendingLabel = photo.serverPath ? "Queued" : "Uploading and labeling...";
   const [feedback, setFeedback] = useState("");
 
   const handleRegenerate = (e: React.FormEvent) => {
@@ -63,17 +79,29 @@ export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerat
           </div>
         )}
         {photo.status === "pending" && (
-          <p className="text-xs text-muted-foreground">Queued</p>
+          <div className="text-center">
+            {!photo.serverPath && (
+              <Loader2 className="mx-auto mb-3 h-6 w-6 animate-spin text-muted-foreground" />
+            )}
+            <p className="text-xs text-muted-foreground">{pendingLabel}</p>
+          </div>
         )}
         {isDone && photo.resultUrl && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={photo.resultUrl}
-            alt={`Result: ${photo.name}`}
-            className="w-full h-full object-cover"
-            loading="lazy"
-            decoding="async"
-          />
+          <>
+            {!imageReady && (
+              <ImageSkeleton previewUrl={photo.previewUrl} />
+            )}
+            {imageReady && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={photo.resultUrl}
+                alt={`Result: ${photo.name}`}
+                className="h-full w-full object-cover"
+                loading="eager"
+                decoding="async"
+              />
+            )}
+          </>
         )}
         {photo.status === "error" && (
           <div className="text-center px-4">
@@ -82,13 +110,13 @@ export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerat
           </div>
         )}
 
-        <div className="absolute bottom-2 left-2 h-14 w-14 rounded-md border-2 border-background overflow-hidden shadow-md bg-muted/20">
+        <div className="absolute bottom-2 left-2 h-14 w-14 overflow-hidden rounded-md border-2 border-background bg-muted/20 shadow-md">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={photo.previewUrl}
             alt={photo.name}
-            className="w-full h-full object-cover"
-            loading="lazy"
+            className={`h-full w-full object-cover ${isDone && !imageReady ? "opacity-70" : ""}`}
+            loading={isDone ? "eager" : "lazy"}
             decoding="async"
           />
         </div>
@@ -107,10 +135,39 @@ export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerat
           </div>
         )}
 
-        <div className="absolute top-2 right-2">
+        <div className="absolute right-2 top-2 flex items-center gap-1">
           <Badge variant="secondary" className="text-[10px] bg-background/80 backdrop-blur-sm">
-            {photo.usedSettings.presetName || photo.usedSettings.shotMode}
+            {isArchived ? "Archived" : photo.usedSettings.presetName || photo.usedSettings.shotMode}
           </Badge>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="bg-background/80 backdrop-blur-sm hover:bg-background"
+            aria-label={isArchived ? `Restore ${photo.name}` : `Archive ${photo.name}`}
+            title={isArchived ? "Restore" : "Archive"}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isArchived) onRestore();
+              else onArchive();
+            }}
+          >
+            {isArchived ? <RotateCcwSquare className="h-3 w-3" /> : <Archive className="h-3 w-3" />}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="bg-background/80 text-destructive backdrop-blur-sm hover:bg-destructive/10 hover:text-destructive"
+            aria-label={`Delete ${photo.name}`}
+            title="Delete permanently"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+          >
+            <Trash2 className="h-3 w-3" />
+          </Button>
         </div>
       </div>
 
@@ -168,6 +225,26 @@ export function ImageResultCard({ photo, selected, onSelect, onRedo, onRegenerat
             </Button>
           </form>
         )}
+      </div>
+    </div>
+  );
+}
+
+function ImageSkeleton({ previewUrl }: { previewUrl: string }) {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center overflow-hidden bg-muted/30">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={previewUrl}
+        alt=""
+        aria-hidden="true"
+        className="absolute inset-0 h-full w-full scale-105 object-cover opacity-45 blur-sm"
+        loading="eager"
+        decoding="async"
+      />
+      <div className="absolute inset-0 animate-pulse bg-background/35" />
+      <div className="relative rounded-full border border-border bg-background/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm">
+        Loading render...
       </div>
     </div>
   );

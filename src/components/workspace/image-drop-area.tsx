@@ -36,7 +36,7 @@ export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
 
   if (compact) {
     return (
-      <div className="mx-6 mt-4 shrink-0">
+      <div className="pointer-events-auto w-full max-w-xl min-w-0">
         <input ref={inputRef} type="file" multiple accept="image/*" className="hidden" onChange={handleChange} />
         <button
           type="button"
@@ -44,13 +44,20 @@ export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
           onDragLeave={(e) => { e.stopPropagation(); setDragging(false); }}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
-          className={`flex w-full items-center gap-3 rounded-lg border-2 border-dashed px-4 py-2.5 text-left transition-colors ${
-            dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"
+          className={`group flex h-12 w-full items-center justify-between gap-3 rounded-full border bg-background/95 px-4 text-left shadow-lg ring-1 ring-foreground/5 backdrop-blur transition-all ${
+            dragging ? "border-primary bg-primary/5 shadow-xl" : "border-border hover:border-primary/50 hover:shadow-xl"
           }`}
         >
-          <Upload className="h-4 w-4 text-muted-foreground shrink-0" />
-          <span className="text-sm text-muted-foreground">
-            Drop more or <span className="text-primary underline underline-offset-2">browse</span>
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+              <Upload className="h-3.5 w-3.5" />
+            </span>
+            <span className="truncate text-sm text-foreground">
+              Drop images, paste, or <span className="text-primary underline underline-offset-2">browse</span>
+            </span>
+          </span>
+          <span className="hidden shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground sm:inline">
+            up to 50
           </span>
         </button>
       </div>
@@ -74,9 +81,9 @@ export function ImageDropArea({ onFiles, compact }: ImageDropAreaProps) {
           <Upload className="h-8 w-8 mx-auto mb-3 text-muted-foreground" />
           <p className="text-sm font-medium mb-1">Drop product photos</p>
           <p className="text-xs text-muted-foreground">
-            Processes immediately with current settings
+            Preview before processing with current settings
           </p>
-          <p className="text-[11px] text-muted-foreground/50 mt-2">PNG, JPG, WEBP</p>
+          <p className="mt-2 text-[11px] text-muted-foreground/50">PNG, JPG, WEBP - up to 50</p>
         </button>
       </div>
     </div>
