@@ -80,6 +80,11 @@ export function ParameterSidebar() {
   const updateTouchUpOption = useAppStore((s) => s.updateTouchUpOption);
   const getActivePrompt = useAppStore((s) => s.getActivePrompt);
 
+  const handleSaveNotes = () => {
+    saveNotes();
+    toast.success("Parameters saved");
+  };
+
   const preset = usePresetStore((s) =>
     activePreset.presetId ? s.presets.find((p) => p.id === activePreset.presetId) : null
   );
@@ -267,7 +272,7 @@ export function ParameterSidebar() {
                 placeholder={`Extra instructions saved with this preset.\nExample: show the back logo, crop tighter, preserve tag placement.`}
                 value={activePreset.notes}
                 onChange={(e) => updateNotes(e.target.value)}
-                onBlur={saveNotes}
+                onBlur={handleSaveNotes}
                 className="min-h-28 resize-y text-sm leading-relaxed"
               />
               <div className="flex items-center justify-between gap-2">
@@ -279,7 +284,7 @@ export function ParameterSidebar() {
                   variant="outline"
                   size="sm"
                   className="h-7 gap-1.5 px-2.5 text-xs"
-                  onClick={saveNotes}
+                  onClick={handleSaveNotes}
                 >
                   <Save className="h-3.5 w-3.5" />
                   Save
