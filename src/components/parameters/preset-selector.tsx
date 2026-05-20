@@ -113,7 +113,10 @@ export function PresetSelector({ onNew, onEdit }: PresetSelectorProps) {
             <SelectSeparator />
             {groupedPresets.product.length > 0 && (
               <SelectGroup>
-                <SelectLabel>Product Shots</SelectLabel>
+                <SelectLabel>
+                  Product Shots
+                  <span className="block text-[10px] font-normal text-muted-foreground">No model</span>
+                </SelectLabel>
                 {groupedPresets.product.map((p) => (
                   <SelectItem key={p.id} value={p.id} className="py-1.5">
                     <PresetOption preset={p} />
@@ -127,7 +130,10 @@ export function PresetSelector({ onNew, onEdit }: PresetSelectorProps) {
             )}
             {groupedPresets.model.length > 0 && (
               <SelectGroup>
-                <SelectLabel>Model Shots</SelectLabel>
+                <SelectLabel>
+                  Model Shots
+                  <span className="block text-[10px] font-normal text-muted-foreground">New model created</span>
+                </SelectLabel>
                 {groupedPresets.model.map((p) => (
                   <SelectItem key={p.id} value={p.id} className="py-1.5">
                     <PresetOption preset={p} />
@@ -140,7 +146,10 @@ export function PresetSelector({ onNew, onEdit }: PresetSelectorProps) {
             )}
             {groupedPresets.touchup.length > 0 && (
               <SelectGroup>
-                <SelectLabel>Touch Ups</SelectLabel>
+                <SelectLabel>
+                  Touch Ups
+                  <span className="block text-[10px] font-normal text-muted-foreground">Existing model shots</span>
+                </SelectLabel>
                 {groupedPresets.touchup.map((p) => (
                   <SelectItem key={p.id} value={p.id} className="py-1.5">
                     <PresetOption preset={p} />
