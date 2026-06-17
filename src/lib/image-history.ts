@@ -67,8 +67,12 @@ async function writeHistoryData(data: ImageHistoryData): Promise<void> {
 }
 
 export async function getImageHistory(): Promise<ImageHistoryItem[]> {
-  const data = await readHistoryData();
-  return data.items.sort((a, b) => b.updatedAt - a.updatedAt);
+  return withHistoryLock(async () => {
+    const data = await readHistoryData();
+    const repaired = await repairSavedResults(data);
+    if (repaired) await writeHistoryData(data);
+    return data.items.sort((a, b) => b.updatedAt - a.updatedAt);
+  });
 }
 
 export async function getImageHistoryItem(id: string): Promise<ImageHistoryItem | null> {
@@ -90,6 +94,34 @@ export async function updateImageHistoryItem(
 
     Object.assign(item, {
       ...patch,
+      updatedAt: Date.now(),
+    });
+
+    await writeHistoryData(data);
+  });
+}
+
+export async function completeImageHistoryItem(input: {
+  id: string;
+  resultUrl: string;
+  cost: number;
+  usage: TokenUsage | null;
+  label?: string;
+  batchFolder?: string;
+}): Promise<void> {
+  await withHistoryLock(async () => {
+    const data = await readHistoryData();
+    const item = data.items.find((entry) => entry.id === input.id);
+    if (!item) return;
+
+    Object.assign(item, {
+      resultUrl: input.resultUrl,
+      status: "done" as const,
+      error: null,
+      cost: item.cost + input.cost,
+      usage: input.usage,
+      label: input.label ?? item.label,
+      batchFolder: input.batchFolder ?? item.batchFolder,
       updatedAt: Date.now(),
     });
 
@@ -161,6 +193,43 @@ async function collectDeleteUrls(items: ImageHistoryItem[]): Promise<Array<strin
   }
 
   return urls;
+}
+
+async function repairSavedResults(data: ImageHistoryData): Promise<boolean> {
+  let repaired = false;
+  const now = Date.now();
+
+  for (const item of data.items) {
+    if (item.resultUrl) continue;
+    if (item.status !== "pending" && item.status !== "processing") continue;
+    if (now - item.updatedAt <= STALE_PENDING_MS) continue;
+
+    const resultUrl = await findSavedResultUrl(item);
+    if (!resultUrl) continue;
+
+    Object.assign(item, {
+      resultUrl,
+      status: "done" as const,
+      error: null,
+    });
+    repaired = true;
+  }
+
+  return repaired;
+}
+
+async function findSavedResultUrl(item: ImageHistoryItem): Promise<string | null> {
+  const prefix = item.label
+    ? `${item.batchFolder}/${item.label}/result_${item.id.slice(0, 8)}.`
+    : `${item.batchFolder}/result_${item.id.slice(0, 8)}.`;
+
+  try {
+    const blobs = await list({ prefix });
+    return blobs.blobs[0]?.url ?? null;
+  } catch (err) {
+    console.error("Blob repair listing failed:", err);
+    return null;
+  }
 }
 
 export async function upsertSourceImage(input: {

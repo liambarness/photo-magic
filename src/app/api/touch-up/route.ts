@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getOpenAIClient } from "@/lib/openai";
 import { saveFile } from "@/lib/file-utils";
-import { getImageHistoryItem } from "@/lib/image-history";
+import { completeImageHistoryItem, getImageHistoryItem } from "@/lib/image-history";
 import { readBlob, blobServingUrl } from "@/lib/blob-utils";
 import { cleanFolder, cleanPathSegment, isRecord, readImageOptions } from "@/lib/validation";
 import { list } from "@vercel/blob";
@@ -101,6 +101,15 @@ export async function POST(request: Request) {
           totalTokens: usage.total_tokens ?? 0,
         }
       : null;
+
+    await completeImageHistoryItem({
+      id: photoId,
+      resultUrl,
+      cost,
+      usage: tokenUsage,
+      label: label || undefined,
+      batchFolder: folder,
+    });
 
     return NextResponse.json({
       resultUrl: `${blobServingUrl(resultUrl)}&t=${Date.now()}`,
