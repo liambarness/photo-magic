@@ -35,6 +35,7 @@ import {
 import { useModelProfileStore } from "@/stores/use-model-profile-store";
 import type {
   ActivePresetConfig,
+  BackgroundMode,
   ModelPoseType,
   ModelProfileSelection,
   ModelViewType,
@@ -227,6 +228,7 @@ function settingsToActiveConfig(settings: PhotoSettings): ActivePresetConfig {
     modelProfileId: settings.modelProfileId ?? "",
     touchUpStrength: settings.touchUpStrength ?? "standard",
     touchUpBackground: settings.touchUpBackground ?? "standard_gray",
+    backgroundMode: settings.backgroundMode ?? "global",
   };
 }
 
@@ -243,6 +245,8 @@ export function Workspace() {
   const imageSize = useSettingsStore((s) => s.imageSize);
   const imageQuality = useSettingsStore((s) => s.imageQuality);
   const outputFormat = useSettingsStore((s) => s.outputFormat);
+  const background = useSettingsStore((s) => s.background);
+  const brandRules = useSettingsStore((s) => s.brandRules);
   const timeoutMs = useSettingsStore((s) => s.timeoutSeconds) * 1000;
   const selectedIds = useAppStore((s) => s.selectedIds);
   const historyLoaded = useAppStore((s) => s._historyLoaded);
@@ -465,7 +469,11 @@ export function Workspace() {
   );
 
   const buildReviewSettingsForPreset = useCallback(
-    (presetId: string, additionalParameters?: string): { settings: PhotoSettings; prompt: string } | null => {
+    (
+      presetId: string,
+      additionalParameters?: string,
+      backgroundMode?: BackgroundMode
+    ): { settings: PhotoSettings; prompt: string } | null => {
       const preset = presets.find((p) => p.id === presetId);
       if (!preset) return null;
 
@@ -482,12 +490,14 @@ export function Workspace() {
               modelProfileId: "" as ModelProfileSelection,
               touchUpStrength: "standard" as TouchUpStrength,
               touchUpBackground: "standard_gray" as TouchUpBackground,
+              backgroundMode: "global" as BackgroundMode,
             };
       const config = {
         ...baseConfig,
+        backgroundMode: backgroundMode ?? baseConfig.backgroundMode,
         notes: additionalParameters ?? baseConfig.notes,
       };
-      const prompt = buildFinalPrompt(preset, config);
+      const prompt = buildFinalPrompt(preset, config, { background, brandRules });
       if (!prompt) return null;
 
       const notes = config.notes.trim();
@@ -504,12 +514,13 @@ export function Workspace() {
           modelProfileId: preset.shotMode === "model" ? config.modelProfileId : undefined,
           touchUpStrength: preset.shotMode === "touchup" ? config.touchUpStrength : undefined,
           touchUpBackground: preset.shotMode === "touchup" ? config.touchUpBackground : undefined,
+          backgroundMode: config.backgroundMode,
           notes: notes || undefined,
           finalPrompt: prompt,
         },
       };
     },
-    [activePreset, presets]
+    [activePreset, background, brandRules, presets]
   );
 
   const handleReviewPresetChange = useCallback(
@@ -534,7 +545,11 @@ export function Workspace() {
       setReviewAdditionalParameters(value);
       if (!reviewPresetId) return;
 
-      const next = buildReviewSettingsForPreset(reviewPresetId, value);
+      const next = buildReviewSettingsForPreset(
+        reviewPresetId,
+        value,
+        reviewSettings?.backgroundMode
+      );
       if (!next) {
         setReviewSettings(null);
         setReviewPrompt("");
@@ -544,7 +559,28 @@ export function Workspace() {
       setReviewSettings(next.settings);
       setReviewPrompt(next.prompt);
     },
-    [buildReviewSettingsForPreset, reviewPresetId]
+    [buildReviewSettingsForPreset, reviewPresetId, reviewSettings?.backgroundMode]
+  );
+
+  const handleReviewBackgroundModeChange = useCallback(
+    (value: BackgroundMode) => {
+      if (!reviewPresetId) return;
+
+      const next = buildReviewSettingsForPreset(
+        reviewPresetId,
+        reviewAdditionalParameters,
+        value
+      );
+      if (!next) {
+        setReviewSettings(null);
+        setReviewPrompt("");
+        return;
+      }
+
+      setReviewSettings(next.settings);
+      setReviewPrompt(next.prompt);
+    },
+    [buildReviewSettingsForPreset, reviewAdditionalParameters, reviewPresetId]
   );
 
   const stageFiles = useCallback(
@@ -694,6 +730,8 @@ export function Workspace() {
           productGroupLabel: itemSettings.productGroupLabel,
           viewType: item.viewType,
           allProfiles: allModelProfiles,
+          background,
+          brandRules,
         }) ?? reviewPrompt;
 
       resolved.push({
@@ -706,7 +744,7 @@ export function Workspace() {
       });
     }
     return resolved;
-  }, [allModelProfiles, presets, reviewItems, reviewPresetId, reviewPrompt, reviewSettings]);
+  }, [allModelProfiles, background, brandRules, presets, reviewItems, reviewPresetId, reviewPrompt, reviewSettings]);
 
   const approveReview = useCallback(() => {
     if (!reviewSettings || !reviewPrompt || !reviewPresetId || reviewItems.length === 0) {
@@ -1176,6 +1214,7 @@ export function Workspace() {
         allModelProfiles={allModelProfiles}
         onPresetChange={handleReviewPresetChange}
         onAdditionalParametersChange={handleReviewAdditionalParametersChange}
+        onBackgroundModeChange={handleReviewBackgroundModeChange}
         onProductGroupChange={updateReviewItemGroup}
         onViewTypeChange={updateReviewItemViewType}
         onApplyGrouping={applyReviewGrouping}

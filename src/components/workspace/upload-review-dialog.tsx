@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import type { ModelViewType, PhotoSettings, Preset } from "@/types";
+import type { BackgroundMode, ModelViewType, PhotoSettings, Preset } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -33,6 +33,10 @@ import {
   productGroupLabel,
 } from "@/lib/model-shot";
 import { getTouchUpStrengthOption } from "@/lib/touch-up";
+import {
+  BACKGROUND_MODE_OPTIONS,
+  getBackgroundModeOption,
+} from "@/lib/background-mode";
 
 export interface PendingUploadItem {
   id: string;
@@ -59,6 +63,7 @@ interface UploadReviewDialogProps {
   allModelProfiles: ModelProfile[];
   onPresetChange: (presetId: string) => void;
   onAdditionalParametersChange: (value: string) => void;
+  onBackgroundModeChange: (value: BackgroundMode) => void;
   onProductGroupChange: (itemId: string, groupId: string) => void;
   onViewTypeChange: (itemId: string, viewType: ModelViewType) => void;
   onApplyGrouping: (strategy: "unique" | "pairs" | "single") => void;
@@ -141,6 +146,7 @@ export function UploadReviewDialog({
   allModelProfiles,
   onPresetChange,
   onAdditionalParametersChange,
+  onBackgroundModeChange,
   onProductGroupChange,
   onViewTypeChange,
   onApplyGrouping,
@@ -190,6 +196,7 @@ export function UploadReviewDialog({
   const pose = getModelPoseOption(settings?.modelPoseType);
   const pinnedModel = getModelProfile(settings?.modelProfileId, allModelProfiles);
   const touchUpStrength = getTouchUpStrengthOption(settings?.touchUpStrength);
+  const backgroundMode = getBackgroundModeOption(settings?.backgroundMode);
 
   return (
     <Dialog
@@ -347,6 +354,32 @@ export function UploadReviewDialog({
                   <p className="text-[11px] leading-relaxed text-muted-foreground/60">
                     Applied only to this reviewed upload and reflected in the final prompt below.
                   </p>
+                </div>
+                <div className="space-y-2 rounded-md border bg-background/70 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-muted-foreground">Background</span>
+                    <span className="text-[11px] text-muted-foreground/60">
+                      {backgroundMode.shortLabel}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {BACKGROUND_MODE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        aria-pressed={backgroundMode.value === option.value}
+                        onClick={() => onBackgroundModeChange(option.value)}
+                        className={cn(
+                          "h-8 rounded-md border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          backgroundMode.value === option.value
+                            ? "border-foreground/40 bg-muted text-foreground shadow-sm"
+                            : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+                        )}
+                      >
+                        {option.shortLabel}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 {settings?.shotMode === "model" && (
                   <>

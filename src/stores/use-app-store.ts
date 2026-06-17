@@ -6,6 +6,7 @@ import type {
   ActivePresetConfig,
   PhotoSettings,
   TokenUsage,
+  BackgroundMode,
   ModelPoseType,
   ModelProfileSelection,
   ModelWearerType,
@@ -16,6 +17,7 @@ import { DEFAULT_ACTIVE_PRESET } from "@/lib/constants";
 import { buildFinalPrompt } from "@/lib/final-prompt";
 import { normalizeModelProfileSelection } from "@/lib/model-shot";
 import { usePresetStore } from "./use-preset-store";
+import { useSettingsStore } from "./use-settings-store";
 
 type WorkspaceStatusFilter = "done" | "all" | Exclude<SourcePhoto["status"], "done">;
 type WorkspaceVisibilityFilter = "active" | "archived" | "all";
@@ -38,6 +40,7 @@ interface AppState {
   goHome: () => void;
   updateNotes: (notes: string) => void;
   saveNotes: () => void;
+  updateBackgroundMode: (value: BackgroundMode) => void;
   updateModelOption: (key: "modelGender" | "modelBuild", value: string) => void;
   updateModelShotOption: (
     key: "modelWearerType" | "modelPoseType" | "modelProfileId",
@@ -185,6 +188,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     saveNotesToPreset(get);
   },
 
+  updateBackgroundMode: (value) => {
+    set((s) => ({
+      activePreset: { ...s.activePreset, backgroundMode: value },
+    }));
+  },
+
   updateModelOption: (key: "modelGender" | "modelBuild", value: string) => {
     set((s) => ({
       activePreset: { ...s.activePreset, [key]: value },
@@ -220,7 +229,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activePreset } = get();
     if (!activePreset.presetId) return null;
     const preset = usePresetStore.getState().getPreset(activePreset.presetId);
-    return buildFinalPrompt(preset, activePreset);
+    const { background, brandRules } = useSettingsStore.getState();
+    return buildFinalPrompt(preset, activePreset, { background, brandRules });
   },
 
   snapshotSettings: () => {
@@ -228,6 +238,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const preset = activePreset.presetId
       ? usePresetStore.getState().getPreset(activePreset.presetId)
       : null;
+    const { background, brandRules } = useSettingsStore.getState();
     const notes = activePreset.notes.trim();
     return {
       presetId: activePreset.presetId,
@@ -240,8 +251,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       modelProfileId: preset?.shotMode === "model" ? activePreset.modelProfileId : undefined,
       touchUpStrength: preset?.shotMode === "touchup" ? activePreset.touchUpStrength : undefined,
       touchUpBackground: preset?.shotMode === "touchup" ? activePreset.touchUpBackground : undefined,
+      backgroundMode: activePreset.backgroundMode,
       notes: notes || undefined,
-      finalPrompt: buildFinalPrompt(preset, activePreset),
+      finalPrompt: buildFinalPrompt(preset, activePreset, { background, brandRules }),
     };
   },
 
@@ -266,6 +278,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           modelPoseType: photo.usedSettings.modelPoseType ?? "upper_face_visible",
           touchUpStrength: photo.usedSettings.touchUpStrength ?? "standard",
           touchUpBackground: photo.usedSettings.touchUpBackground ?? "standard_gray",
+          backgroundMode: photo.usedSettings.backgroundMode ?? "global",
         },
       }));
       set((s) => {

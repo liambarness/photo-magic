@@ -203,6 +203,10 @@ function cleanTouchUpBackground(value: unknown): PhotoSettings["touchUpBackgroun
   return value === "standard_gray" || value === "preserve" ? value : undefined;
 }
 
+function cleanBackgroundMode(value: unknown): PhotoSettings["backgroundMode"] {
+  return value === "flat_white" || value === "global" ? value : undefined;
+}
+
 function normalizePhotoSettings(
   raw: Partial<PhotoSettings>,
   fallback: PhotoSettings
@@ -222,6 +226,7 @@ function normalizePhotoSettings(
     viewType: cleanViewType(raw.viewType) ?? fallback.viewType,
     touchUpStrength: cleanTouchUpStrength(raw.touchUpStrength) ?? fallback.touchUpStrength,
     touchUpBackground: cleanTouchUpBackground(raw.touchUpBackground) ?? fallback.touchUpBackground,
+    backgroundMode: cleanBackgroundMode(raw.backgroundMode) ?? fallback.backgroundMode ?? "global",
     notes: typeof raw.notes === "string" ? raw.notes.slice(0, 1000) : fallback.notes,
     finalPrompt: typeof raw.finalPrompt === "string" ? raw.finalPrompt.slice(0, 8000) : fallback.finalPrompt ?? null,
   };
@@ -410,6 +415,7 @@ function parsePhotoSettings(
         viewType: parsed.viewType,
         touchUpStrength: parsed.touchUpStrength,
         touchUpBackground: parsed.touchUpBackground,
+        backgroundMode: parsed.backgroundMode,
         notes: typeof parsed.notes === "string" ? parsed.notes.slice(0, 1000) : undefined,
         finalPrompt: typeof parsed.finalPrompt === "string" ? parsed.finalPrompt.slice(0, 8000) : null,
       }, {

@@ -30,6 +30,7 @@ export const DEFAULT_ACTIVE_PRESET: ActivePresetConfig = {
   modelProfileId: "",
   touchUpStrength: "standard",
   touchUpBackground: "standard_gray",
+  backgroundMode: "global",
 };
 
 export const GLOBAL_TOUCH_UP_PRESET_ID = "system-touch-up-general";

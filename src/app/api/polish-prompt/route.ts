@@ -13,7 +13,7 @@ Rules:
 - For model shots, DO NOT specify crop, framing, face visibility, body area, gender, body type, age group, or model identity; those are runtime settings
 - For touch-up shots, NEVER ask to create or replace the model/person; the uploaded source already contains the model/person
 - Do NOT specify model gender or body type - those are set at runtime per batch
-- Incorporate the background description and brand rules as constraints
+- Do NOT specify background, studio setup, lighting, or brand rules; those are runtime/global settings
 - Include the user's description naturally
 - Do NOT add details the user did not specify or imply
 - Do NOT use markdown, bullet points, or labels - just a flowing paragraph
@@ -34,8 +34,6 @@ export async function POST(request: Request) {
         : "";
     const framing = cleanText(body.framing, 300);
     const description = cleanText(body.description, 5000);
-    const brandRules = cleanText(body.brandRules, 5000);
-    const background = cleanText(body.background, 2000);
 
     if (!presetName || !shotMode) {
       return NextResponse.json({ error: "Missing preset info" }, { status: 400 });
@@ -47,8 +45,8 @@ export async function POST(request: Request) {
     ];
     if (framing) lines.push(`Framing: ${framing}`);
     if (description) lines.push(`Description: ${description}`);
-    lines.push(`Background: ${background || "studio background"}`);
-    lines.push(`Brand rules: ${brandRules || "none"}`);
+    lines.push("Background: omitted; handled at runtime");
+    lines.push("Brand rules: omitted; handled at runtime");
 
     const openai = getOpenAIClient();
     const response = await openai.chat.completions.create({
