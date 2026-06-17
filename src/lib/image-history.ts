@@ -382,6 +382,10 @@ function normalizePhotoSettings(settings: Partial<PhotoSettings> | null | undefi
         : settings?.shotMode === "touchup"
           ? "standard_gray"
           : undefined,
+    backgroundMode:
+      settings?.backgroundMode === "flat_white" || settings?.backgroundMode === "global"
+        ? settings.backgroundMode
+        : "global",
     notes: typeof settings?.notes === "string" ? settings.notes : undefined,
     finalPrompt: typeof settings?.finalPrompt === "string" ? settings.finalPrompt : null,
   };

@@ -1,9 +1,7 @@
 import type { Preset } from "@/types";
 
 export function buildFallbackPrompt(
-  preset: Preset,
-  brandRules: string,
-  background: string
+  preset: Preset
 ): string {
   const parts: string[] = [];
 
@@ -18,8 +16,6 @@ export function buildFallbackPrompt(
   }
 
   if (preset.description) parts.push(preset.description + ".");
-  if (background) parts.push(background + ".");
-  if (brandRules) parts.push(brandRules);
 
   return parts.join(" ");
 }

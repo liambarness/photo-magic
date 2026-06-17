@@ -4,7 +4,6 @@ import { useState } from "react";
 import type { Preset, ShotMode } from "@/types";
 import { usePresetStore, createPresetShell } from "@/stores/use-preset-store";
 import { useAppStore } from "@/stores/use-app-store";
-import { useSettingsStore } from "@/stores/use-settings-store";
 import { buildFallbackPrompt } from "@/lib/prompt-builder";
 import {
   Dialog,
@@ -58,8 +57,6 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
   const selectPreset = useAppStore((s) => s.selectPreset);
   const clearPreset = useAppStore((s) => s.clearPreset);
   const activePresetId = useAppStore((s) => s.activePreset.presetId);
-  const brandRules = useSettingsStore((s) => s.brandRules);
-  const background = useSettingsStore((s) => s.background);
 
   const [name, setName] = useState(existing?.name ?? "");
   const [shotMode, setShotMode] = useState<ShotMode>(
@@ -79,8 +76,6 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
           presetName: data.name,
           shotMode: data.shotMode,
           description: data.description,
-          brandRules,
-          background,
         }),
       });
       if (!res.ok) throw new Error("Prompt polish failed");
@@ -92,7 +87,7 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
     } catch {}
 
     const shell = { ...createPresetShell(data.name), ...data, polishedPrompt: null };
-    return buildFallbackPrompt(shell, brandRules, background);
+    return buildFallbackPrompt(shell);
   };
 
   const handleSave = async () => {
@@ -191,9 +186,8 @@ function PresetEditorForm({ editId, existing, onOpenChange }: PresetEditorFormPr
           <div className="space-y-1 rounded-md bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground/70">
             <p className="font-medium text-muted-foreground">Already handled by the system:</p>
             <ul className="list-disc space-y-0.5 pl-3.5">
-              <li>Light grey studio background (#EBEBEB)</li>
-              <li>Clean, catalog-style lighting and aesthetic</li>
-              <li>Brand rules (preserve design, no invented graphics)</li>
+              <li>Background mode from Shot Settings</li>
+              <li>Global brand rules</li>
               {shotMode === "model" && <li>Model appearance is varied automatically</li>}
               {shotMode === "touchup" && (
                 <li>Existing model, pose, fit, artwork, and composition are preserved</li>
