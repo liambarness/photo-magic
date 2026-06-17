@@ -16,6 +16,7 @@ import { DEFAULT_ACTIVE_PRESET } from "@/lib/constants";
 import { buildFinalPrompt } from "@/lib/final-prompt";
 import { normalizeModelProfileSelection } from "@/lib/model-shot";
 import { usePresetStore } from "./use-preset-store";
+import { useModelProfileStore } from "./use-model-profile-store";
 
 type WorkspaceStatusFilter = "done" | "all" | Exclude<SourcePhoto["status"], "done">;
 type WorkspaceVisibilityFilter = "active" | "archived" | "all";
@@ -220,7 +221,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { activePreset } = get();
     if (!activePreset.presetId) return null;
     const preset = usePresetStore.getState().getPreset(activePreset.presetId);
-    return buildFinalPrompt(preset, activePreset);
+    return buildFinalPrompt(preset, activePreset, {
+      allProfiles: useModelProfileStore.getState().profiles,
+    });
   },
 
   snapshotSettings: () => {
@@ -241,7 +244,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       touchUpStrength: preset?.shotMode === "touchup" ? activePreset.touchUpStrength : undefined,
       touchUpBackground: preset?.shotMode === "touchup" ? activePreset.touchUpBackground : undefined,
       notes: notes || undefined,
-      finalPrompt: buildFinalPrompt(preset, activePreset),
+      finalPrompt: buildFinalPrompt(preset, activePreset, {
+        allProfiles: useModelProfileStore.getState().profiles,
+      }),
     };
   },
 

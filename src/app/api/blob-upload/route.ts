@@ -80,6 +80,10 @@ export async function DELETE(request: Request) {
 }
 
 function cleanUploadPathname(pathname: string): string | null {
+  if (pathname.startsWith("model-face-references/")) {
+    return cleanModelFaceReferencePathname(pathname);
+  }
+
   if (!pathname.startsWith("source-uploads/")) return null;
   if (pathname.includes("..") || pathname.includes("//")) return null;
 
@@ -91,6 +95,23 @@ function cleanUploadPathname(pathname: string): string | null {
   if (root !== "source-uploads") return null;
   if (folder !== cleanPathSegment(folder, "batch")) return null;
   if (id !== cleanPathSegment(id, "item")) return null;
+  if (!filename || filename.length > 180) return null;
+  if (!/^[a-z0-9._-]+$/i.test(filename)) return null;
+
+  return pathname;
+}
+
+function cleanModelFaceReferencePathname(pathname: string): string | null {
+  if (pathname.includes("..") || pathname.includes("//")) return null;
+
+  const parts = pathname.split("/");
+  if (parts.length !== 4) return null;
+
+  const [root, profileId, referenceId, ...filenameParts] = parts;
+  const filename = filenameParts.join("-");
+  if (root !== "model-face-references") return null;
+  if (profileId !== cleanPathSegment(profileId, "profile")) return null;
+  if (referenceId !== cleanPathSegment(referenceId, "reference")) return null;
   if (!filename || filename.length > 180) return null;
   if (!/^[a-z0-9._-]+$/i.test(filename)) return null;
 
