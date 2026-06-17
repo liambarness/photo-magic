@@ -23,13 +23,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Loader2, Trash2, Upload, X } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { CircleHelp, Loader2, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { useModelProfileStore } from "@/stores/use-model-profile-store";
 import {
   MODEL_WEARER_OPTIONS,
   type ModelFaceReference,
-  type ModelProfileKind,
 } from "@/lib/model-shot";
 import { cleanExtension, cleanPathSegment, validateImageFile } from "@/lib/validation";
 import type { ModelWearerType } from "@/types";
@@ -100,7 +104,6 @@ export function ModelProfileEditor({
   const existing = editId ? getProfile(editId) : null;
   const isNew = !editId;
   const [name, setName] = useState(existing?.name ?? "");
-  const [kind, setKind] = useState<ModelProfileKind>(existing?.kind ?? "ai");
   const [wearerType, setWearerType] = useState<ModelWearerType>(existing?.wearerType ?? "mens");
   const [prompt, setPrompt] = useState(existing?.prompt ?? "");
   const [styling, setStyling] = useState(existing?.styling ?? "");
@@ -233,12 +236,9 @@ export function ModelProfileEditor({
       toast.error("Give the model a name.");
       return;
     }
-    if (kind === "ai" && !prompt.trim()) {
+    const inferredKind = faceReferences.length > 0 ? "human" : "ai";
+    if (inferredKind === "ai" && !prompt.trim()) {
       toast.error("Describe the model's appearance.");
-      return;
-    }
-    if (kind === "human" && faceReferences.length === 0) {
-      toast.error("Add 1-4 face reference images for this human model.");
       return;
     }
 
@@ -247,12 +247,12 @@ export function ModelProfileEditor({
     setSaving(true);
 
     try {
-      const uploadedFaceReferences = kind === "human" ? await uploadFaceReferences(profileId) : undefined;
+      const uploadedFaceReferences = inferredKind === "human" ? await uploadFaceReferences(profileId) : undefined;
 
       if (isNew) {
         addProfile({
           id: profileId,
-          kind,
+          kind: inferredKind,
           name: trimmedName,
           wearerType,
           prompt: prompt.trim(),
@@ -264,7 +264,7 @@ export function ModelProfileEditor({
         toast.success(`Created "${trimmedName}"`);
       } else if (editId) {
         updateProfile(editId, {
-          kind,
+          kind: inferredKind,
           name: trimmedName,
           wearerType,
           prompt: prompt.trim(),
@@ -280,7 +280,7 @@ export function ModelProfileEditor({
     } finally {
       setSaving(false);
     }
-  }, [name, kind, prompt, faceReferences, editId, isNew, uploadFaceReferences, wearerType, styling, onOpenChange, addProfile, updateProfile]);
+  }, [name, prompt, faceReferences, editId, isNew, uploadFaceReferences, wearerType, styling, onOpenChange, addProfile, updateProfile]);
 
   const handleDelete = useCallback(() => {
     if (!editId) return;
@@ -293,8 +293,8 @@ export function ModelProfileEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[min(760px,92vh)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
+        <DialogHeader className="shrink-0 border-b px-4 py-4 pr-12">
           <DialogTitle>{isNew ? "New Model Profile" : "Edit Model Profile"}</DialogTitle>
           <DialogDescription>
             {isNew
@@ -303,7 +303,7 @@ export function ModelProfileEditor({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
           <div className="space-y-1.5">
             <Label htmlFor="mp-name">Name</Label>
             <Input
@@ -313,28 +313,6 @@ export function ModelProfileEditor({
               onChange={(e) => setName(e.target.value)}
               maxLength={120}
             />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>Model Type</Label>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant={kind === "ai" ? "default" : "outline"}
-                className="justify-start"
-                onClick={() => setKind("ai")}
-              >
-                AI Model
-              </Button>
-              <Button
-                type="button"
-                variant={kind === "human" ? "default" : "outline"}
-                className="justify-start"
-                onClick={() => setKind("human")}
-              >
-                Human Model
-              </Button>
-            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -357,94 +335,104 @@ export function ModelProfileEditor({
             <Label htmlFor="mp-prompt">Appearance</Label>
             <Textarea
               id="mp-prompt"
-              placeholder={
-                kind === "human"
-                  ? "Optional body/hair/build context for no-face crops and consistency"
-                  : "e.g. 21 year old male, tan skin, blonde shaggy surfer hair, athletic lean build, relaxed smile"
-              }
+              placeholder="e.g. 21 year old male, tan skin, blonde shaggy surfer hair, athletic lean build, relaxed smile"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               className="min-h-24 resize-y text-sm"
               maxLength={2000}
             />
             <p className="text-[11px] text-muted-foreground">
-              {kind === "human"
-                ? "Face-visible shots use references for identity; this text helps body, hair, and no-face crops stay consistent."
-                : "Describe the model's physical appearance. This keeps the same person across all shots."}
+              Describe the model&apos;s physical appearance. If face images are added below, this text helps body, hair, and no-face crops stay consistent.
             </p>
           </div>
 
-          {kind === "human" && (
-            <div className="space-y-2 rounded-md border bg-muted/20 p-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
+          <div className="space-y-2 rounded-md border bg-muted/20 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="flex items-center gap-1.5">
                   <Label>Face References</Label>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Add 1-4 images. Face-visible shots use these as identity references.
-                  </p>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <button
+                          type="button"
+                          className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          aria-label="Face reference behavior"
+                        />
+                      }
+                    >
+                      <CircleHelp className="h-3.5 w-3.5" />
+                    </TooltipTrigger>
+                    <TooltipContent side="top" align="start" className="max-w-64">
+                      No images means this saves as an AI model. Add 1-4 face images to save it as a human model for face-visible shots.
+                    </TooltipContent>
+                  </Tooltip>
                 </div>
-                <Badge variant="outline" className="shrink-0">
-                  {faceReferences.length}/4
-                </Badge>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Optional. Face-visible shots use these as identity references.
+                </p>
               </div>
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                accept="image/*"
-                className="hidden"
-                onChange={(event) => {
-                  const files = Array.from(event.target.files ?? []);
-                  if (files.length) handleAddFaceFiles(files);
-                  event.target.value = "";
-                }}
-              />
-
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  handleAddFaceFiles(Array.from(event.dataTransfer.files));
-                }}
-                className="flex min-h-20 w-full items-center justify-center rounded-md border border-dashed bg-background/70 px-3 py-4 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
-              >
-                <span className="flex items-center gap-2">
-                  <Upload className="h-4 w-4" />
-                  Drop face images or browse
-                </span>
-              </button>
-
-              {faceReferences.length > 0 && (
-                <div className="grid grid-cols-4 gap-2">
-                  {faceReferences.map((reference) => (
-                    <div key={reference.id} className="group relative aspect-square overflow-hidden rounded-md border bg-background">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={reference.previewUrl}
-                        alt={reference.name}
-                        className="h-full w-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        aria-label={`Remove ${reference.name}`}
-                        className="absolute right-1 top-1 flex size-6 items-center justify-center rounded-full border border-destructive/20 bg-background/95 text-destructive opacity-0 shadow-sm transition-opacity hover:bg-destructive hover:text-destructive-foreground group-hover:opacity-100 focus-visible:opacity-100"
-                        onClick={() => handleRemoveFaceReference(reference.id)}
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+              <Badge variant="outline" className="shrink-0">
+                {faceReferences.length > 0 ? "Human" : "AI"} - {faceReferences.length}/4
+              </Badge>
             </div>
-          )}
+
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                if (files.length) handleAddFaceFiles(files);
+                event.target.value = "";
+              }}
+            />
+
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onDrop={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                handleAddFaceFiles(Array.from(event.dataTransfer.files));
+              }}
+              className="flex min-h-20 w-full items-center justify-center rounded-md border border-dashed bg-background/70 px-3 py-4 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+            >
+              <span className="flex items-center gap-2">
+                <Upload className="h-4 w-4" />
+                Drop face images or browse
+              </span>
+            </button>
+
+            {faceReferences.length > 0 && (
+              <div className="grid grid-cols-4 gap-2">
+                {faceReferences.map((reference) => (
+                  <div key={reference.id} className="group relative aspect-square overflow-hidden rounded-md border bg-background">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={reference.previewUrl}
+                      alt={reference.name}
+                      className="h-full w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      aria-label={`Remove ${reference.name}`}
+                      className="absolute right-1 top-1 flex size-6 items-center justify-center rounded-full border border-destructive/20 bg-background/95 text-destructive opacity-0 shadow-sm transition-opacity hover:bg-destructive hover:text-destructive-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                      onClick={() => handleRemoveFaceReference(reference.id)}
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="mp-styling">Default Styling</Label>
@@ -462,7 +450,7 @@ export function ModelProfileEditor({
           </div>
         </div>
 
-        <DialogFooter className="gap-2 sm:justify-between">
+        <DialogFooter className="mx-0 mb-0 shrink-0 gap-2 rounded-none rounded-b-xl sm:justify-between">
           <div>
             {editId && !existing?.system && (
               <Button
