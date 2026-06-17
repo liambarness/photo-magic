@@ -5,6 +5,14 @@ import { completeImageHistoryItem, getImageHistoryItem } from "@/lib/image-histo
 import { readBlob, blobServingUrl } from "@/lib/blob-utils";
 import { cleanFolder, cleanPathSegment, isRecord, readImageOptions } from "@/lib/validation";
 import { list } from "@vercel/blob";
+import { getModelProfiles } from "@/lib/server-store";
+import {
+  getModelProfile,
+  humanProfileHasFaceReferences,
+  poseUsesVisibleFace,
+  type ModelFaceReference,
+} from "@/lib/model-shot";
+import type { ModelPoseType } from "@/types";
 
 const MIME: Record<string, string> = {
   png: "image/png",
@@ -39,6 +47,8 @@ export async function POST(request: Request) {
     const photoId = typeof body.photoId === "string" ? body.photoId : "";
     const label = cleanPathSegment(body.label, "");
     const prompt = typeof body.prompt === "string" ? body.prompt.slice(0, 8000) : "";
+    const requestModelProfileId = typeof body.modelProfileId === "string" ? body.modelProfileId : "";
+    const requestModelPoseType = cleanModelPoseType(body.modelPoseType);
     const { imageSize, imageQuality, outputFormat } = readImageOptions(body);
 
     if (!folder || !photoId || !prompt) {
@@ -67,20 +77,37 @@ export async function POST(request: Request) {
     const imageFile = new File([imageBuffer], `source.${ext}`, {
       type: MIME[ext] || "image/png",
     });
+    const inputImages: File[] = [imageFile];
+    const historyItem = await getImageHistoryItem(photoId);
+    const modelProfileId = requestModelProfileId || historyItem?.usedSettings.modelProfileId || "";
+    const modelPoseType = requestModelPoseType ?? historyItem?.usedSettings.modelPoseType;
+    const faceReferences = await resolveHumanFaceReferences(modelProfileId, modelPoseType);
+
+    if (faceReferences.status === "missing-required") {
+      return NextResponse.json(
+        { error: "This human model profile needs 1-4 face reference images before generating a face-visible model shot." },
+        { status: 400 }
+      );
+    }
+
+    inputImages.push(...faceReferences.files);
 
     const format = outputFormat;
     const quality = imageQuality;
 
     const openai = getOpenAIClient();
-    const response = await openai.images.edit({
+    const editParams = {
       model: "gpt-image-2",
-      image: imageFile,
+      image: inputImages.length === 1 ? inputImages[0] : inputImages,
       prompt,
       n: 1,
       size: imageSize as "1024x1024" | "1536x1024" | "1024x1536",
       quality: quality as "low" | "medium" | "high" | "auto",
       output_format: format as "png" | "jpeg" | "webp",
-    });
+    };
+    // The SDK accepts a single File or an array, matching the Images edit API's image[] form field.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await openai.images.edit(editParams as any);
 
     const imageData = response.data?.[0];
     if (!imageData?.b64_json) {
@@ -154,4 +181,57 @@ function imageSource(url: string): { url: string; ext: string } {
     url,
     ext: pathname.split(".").pop()?.toLowerCase() || "png",
   };
+}
+
+function cleanModelPoseType(value: unknown): ModelPoseType | undefined {
+  return value === "full_body" ||
+    value === "upper_face_visible" ||
+    value === "upper_no_face" ||
+    value === "lower_no_face"
+    ? value
+    : undefined;
+}
+
+async function resolveHumanFaceReferences(
+  modelProfileId: string,
+  modelPoseType: ModelPoseType | undefined
+): Promise<
+  | { status: "none"; files: File[] }
+  | { status: "ready"; files: File[] }
+  | { status: "missing-required"; files: File[] }
+> {
+  if (!modelProfileId || !poseUsesVisibleFace(modelPoseType)) {
+    return { status: "none", files: [] };
+  }
+
+  const profiles = await getModelProfiles();
+  const profile = getModelProfile(modelProfileId, profiles);
+  if (profile?.kind !== "human") {
+    return { status: "none", files: [] };
+  }
+  if (!humanProfileHasFaceReferences(profile)) {
+    return { status: "missing-required", files: [] };
+  }
+
+  const files = await Promise.all(
+    (profile.faceReferences ?? []).slice(0, 4).map((reference, index) =>
+      referenceToFile(reference, index)
+    )
+  );
+
+  const readable = files.filter((file): file is File => Boolean(file));
+  return readable.length > 0
+    ? { status: "ready", files: readable }
+    : { status: "missing-required", files: [] };
+}
+
+async function referenceToFile(reference: ModelFaceReference, index: number): Promise<File | null> {
+  const blob = await readBlob(reference.url).catch(() => null);
+  if (!blob) return null;
+
+  const ext = reference.name.split(".").pop()?.toLowerCase() || "png";
+  const mime = blob.contentType || reference.contentType || MIME[ext] || "image/png";
+  return new File([new Uint8Array(blob.buffer)], `face-reference-${index + 1}.${ext}`, {
+    type: mime,
+  });
 }

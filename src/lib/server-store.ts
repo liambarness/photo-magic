@@ -1,5 +1,5 @@
 import type { Preset } from "@/types";
-import type { ModelProfile } from "@/lib/model-shot";
+import { normalizeModelProfile, type ModelProfile } from "@/lib/model-shot";
 import { putBlob, readBlobJson as readJsonBlob } from "@/lib/blob-utils";
 
 const LEGACY_STORE_KEY = "data/store.json";
@@ -198,13 +198,14 @@ export async function getModelProfiles(): Promise<ModelProfile[]> {
   }
 
   const profiles = await readBlobJson<ModelProfile[]>(MODEL_PROFILES_KEY);
-  return cacheModelProfiles(profiles ?? []);
+  return cacheModelProfiles((profiles ?? []).map(normalizeModelProfile));
 }
 
 export async function saveModelProfile(profile: ModelProfile): Promise<ModelProfile[]> {
   return withStoreLock(async () => {
     const profiles = await getModelProfiles();
-    const next = [...profiles.filter((p) => p.id !== profile.id), profile];
+    const normalized = normalizeModelProfile(profile);
+    const next = [...profiles.filter((p) => p.id !== normalized.id), normalized];
     await writeBlobJson(MODEL_PROFILES_KEY, next);
     return cacheModelProfiles(next);
   });
@@ -217,7 +218,7 @@ export async function updateModelProfile(
   return withStoreLock(async () => {
     const profiles = await getModelProfiles();
     const next = profiles.map((p) =>
-      p.id === id ? { ...p, ...patch, updatedAt: Date.now() } : p
+      p.id === id ? normalizeModelProfile({ ...p, ...patch, updatedAt: Date.now() }) : p
     );
     await writeBlobJson(MODEL_PROFILES_KEY, next);
     return cacheModelProfiles(next);

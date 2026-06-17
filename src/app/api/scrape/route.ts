@@ -61,7 +61,7 @@ export async function POST(request: Request) {
   let productsJsonUrl: string;
   try {
     const parsed = new URL(rawUrl);
-    let path = parsed.pathname
+    const path = parsed.pathname
       .replace(/\/products\.json\/?$/i, "")
       .replace(/\/+$/, "");
 

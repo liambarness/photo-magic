@@ -19,12 +19,25 @@ export interface ModelPoseOption {
   prompt: string;
 }
 
+export type ModelProfileKind = "ai" | "human";
+
+export interface ModelFaceReference {
+  id: string;
+  name: string;
+  url: string;
+  contentType: string;
+  size: number;
+  createdAt: number;
+}
+
 export interface ModelProfile {
   id: string;
+  kind: ModelProfileKind;
   name: string;
   wearerType: ModelWearerType;
   prompt: string;
   styling: string;
+  faceReferences?: ModelFaceReference[];
   system?: boolean;
   createdAt?: number;
   updatedAt?: number;
@@ -91,6 +104,7 @@ export const MODEL_POSE_OPTIONS: ModelPoseOption[] = [
 export const STARTER_MODEL_PROFILES: ModelProfile[] = [
   {
     id: "starter_mens_01",
+    kind: "ai",
     name: "Mens Starter",
     wearerType: "mens",
     prompt: "adult male model with warm medium skin tone, short dark hair, athletic build, relaxed neutral expression",
@@ -99,6 +113,7 @@ export const STARTER_MODEL_PROFILES: ModelProfile[] = [
   },
   {
     id: "starter_womens_01",
+    kind: "ai",
     name: "Womens Starter",
     wearerType: "womens",
     prompt: "adult female model with warm medium skin tone, shoulder-length dark hair, average build, natural catalog expression",
@@ -107,6 +122,7 @@ export const STARTER_MODEL_PROFILES: ModelProfile[] = [
   },
   {
     id: "starter_youth_01",
+    kind: "ai",
     name: "Youth Starter",
     wearerType: "youth",
     prompt: "youth model around 10 years old with medium skin tone, short dark hair, average child build, neutral catalog expression",
@@ -115,6 +131,7 @@ export const STARTER_MODEL_PROFILES: ModelProfile[] = [
   },
   {
     id: "starter_toddler_01",
+    kind: "ai",
     name: "Toddler Starter",
     wearerType: "toddler",
     prompt: "toddler model around 4 years old with medium skin tone, short dark hair, toddler build, simple neutral stance",
@@ -138,6 +155,31 @@ export function getModelProfile(
   if (!id) return null;
   const profiles = allProfiles ?? STARTER_MODEL_PROFILES;
   return profiles.find((profile) => profile.id === id) ?? null;
+}
+
+export function normalizeModelProfile(profile: ModelProfile): ModelProfile {
+  const kind: ModelProfileKind = profile.kind === "human" ? "human" : "ai";
+  const faceReferences = Array.isArray(profile.faceReferences)
+    ? profile.faceReferences.filter((reference) => reference.url && reference.url.startsWith("http"))
+    : [];
+
+  return {
+    ...profile,
+    kind,
+    faceReferences: kind === "human" ? faceReferences.slice(0, 4) : undefined,
+  };
+}
+
+export function modelProfileKindLabel(profile: ModelProfile | null | undefined): string {
+  return profile?.kind === "human" ? "Human" : "AI";
+}
+
+export function poseUsesVisibleFace(value: ModelPoseType | undefined): boolean {
+  return value === "full_body" || value === "upper_face_visible";
+}
+
+export function humanProfileHasFaceReferences(profile: ModelProfile | null | undefined): boolean {
+  return Boolean(profile?.kind === "human" && profile.faceReferences && profile.faceReferences.length > 0);
 }
 
 export function modelProfilesForWearer(

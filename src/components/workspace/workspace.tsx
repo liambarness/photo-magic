@@ -29,7 +29,10 @@ import {
 } from "@/lib/validation";
 import {
   assignModelProfilesToGroups,
+  getModelProfile,
+  humanProfileHasFaceReferences,
   inferViewType,
+  poseUsesVisibleFace,
   productGroupLabel,
 } from "@/lib/model-shot";
 import { useModelProfileStore } from "@/stores/use-model-profile-store";
@@ -303,6 +306,8 @@ export function Workspace() {
             label,
             sourceUrl,
             prompt: finalPrompt,
+            modelProfileId: photo?.usedSettings.modelProfileId,
+            modelPoseType: photo?.usedSettings.modelPoseType,
             imageSize,
             imageQuality,
             outputFormat,
@@ -497,7 +502,11 @@ export function Workspace() {
         backgroundMode: backgroundMode ?? baseConfig.backgroundMode,
         notes: additionalParameters ?? baseConfig.notes,
       };
-      const prompt = buildFinalPrompt(preset, config, { background, brandRules });
+      const prompt = buildFinalPrompt(preset, config, {
+        allProfiles: allModelProfiles,
+        background,
+        brandRules,
+      });
       if (!prompt) return null;
 
       const notes = config.notes.trim();
@@ -520,7 +529,7 @@ export function Workspace() {
         },
       };
     },
-    [activePreset, background, brandRules, presets]
+    [activePreset, allModelProfiles, background, brandRules, presets]
   );
 
   const handleReviewPresetChange = useCallback(
@@ -715,6 +724,13 @@ export function Workspace() {
     for (const item of reviewItems) {
       const profile = assignments[item.productGroupId];
       if (!profile) continue;
+      if (
+        profile.kind === "human" &&
+        poseUsesVisibleFace(reviewSettings.modelPoseType) &&
+        !humanProfileHasFaceReferences(profile)
+      ) {
+        return null;
+      }
       const itemSettings: PhotoSettings = {
         ...reviewSettings,
         modelProfileId: profile.id,
@@ -751,6 +767,15 @@ export function Workspace() {
       toast.error("Choose a preset before approving.");
       return;
     }
+    const selectedProfile = getModelProfile(reviewSettings.modelProfileId, allModelProfiles);
+    if (
+      selectedProfile?.kind === "human" &&
+      poseUsesVisibleFace(reviewSettings.modelPoseType) &&
+      !humanProfileHasFaceReferences(selectedProfile)
+    ) {
+      toast.error("Add 1-4 face reference images to this human model before generating face-visible shots.");
+      return;
+    }
     const items = resolveReviewItems();
     if (!items) {
       toast.error("Upload settings could not be resolved.");
@@ -764,7 +789,7 @@ export function Workspace() {
     setReviewPrompt("");
     setReviewAdditionalParameters("");
     void uploadAndProcess(items, settings);
-  }, [reviewItems.length, reviewPresetId, reviewPrompt, reviewSettings, resolveReviewItems, uploadAndProcess]);
+  }, [allModelProfiles, reviewItems.length, reviewPresetId, reviewPrompt, reviewSettings, resolveReviewItems, uploadAndProcess]);
 
   const handleRedo = useCallback(
     async (photoId: string) => {

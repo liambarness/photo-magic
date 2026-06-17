@@ -2,7 +2,7 @@
 
 import { create } from "zustand";
 import type { ModelProfile } from "@/lib/model-shot";
-import { STARTER_MODEL_PROFILES } from "@/lib/model-shot";
+import { STARTER_MODEL_PROFILES, normalizeModelProfile } from "@/lib/model-shot";
 import { toast } from "sonner";
 
 interface ModelProfileState {
@@ -18,9 +18,10 @@ interface ModelProfileState {
 }
 
 function withStarters(custom: ModelProfile[]): ModelProfile[] {
-  const customIds = new Set(custom.map((p) => p.id));
+  const normalized = custom.map(normalizeModelProfile);
+  const customIds = new Set(normalized.map((p) => p.id));
   const starters = STARTER_MODEL_PROFILES.filter((s) => !customIds.has(s.id));
-  return [...starters, ...custom];
+  return [...starters, ...normalized];
 }
 
 export const useModelProfileStore = create<ModelProfileState>((set, get) => ({

@@ -4,6 +4,9 @@ import {
   getModelPoseOption,
   getModelProfile,
   getModelWearerOption,
+  humanProfileHasFaceReferences,
+  modelProfileKindLabel,
+  poseUsesVisibleFace,
   productGroupLabel,
   viewTypeLabel,
 } from "@/lib/model-shot";
@@ -91,6 +94,7 @@ export function buildFinalPrompt(
       options.modelProfileId ?? activePreset.modelProfileId,
       options.allProfiles
     );
+    const usesVisibleFace = poseUsesVisibleFace(activePreset.modelPoseType);
     const groupLabel =
       options.productGroupLabel ??
       (options.productGroupId ? productGroupLabel(options.productGroupId) : "");
@@ -106,9 +110,35 @@ export function buildFinalPrompt(
       parts.push(wearer.safetyPrompt);
     }
     if (modelProfile) {
-      parts.push(
-        `Use selected model profile "${modelProfile.name}": ${modelProfile.prompt}. Keep this same model identity consistent for every image in ${groupLabel || "the same product group"}.`
-      );
+      if (modelProfile.kind === "human") {
+        parts.push(
+          `Use selected ${modelProfileKindLabel(modelProfile).toLowerCase()} model profile "${modelProfile.name}". Keep this same model identity context consistent for every image in ${groupLabel || "the same product group"}.`
+        );
+        if (modelProfile.prompt) {
+          parts.push(
+            `Body and appearance context for this human model: ${modelProfile.prompt}.`
+          );
+        }
+        if (usesVisibleFace) {
+          if (humanProfileHasFaceReferences(modelProfile)) {
+            parts.push(
+              "Use the attached face reference images as the authoritative source for the model's facial identity, facial features, skin tone, and natural expression. Use the uploaded product/source image as the authoritative source for the garment/product. Do not copy clothing, background, pose, lighting, or camera angle from the face reference images."
+            );
+          } else {
+            parts.push(
+              "This human model profile needs 1-4 face reference images before generating a face-visible model shot."
+            );
+          }
+        } else {
+          parts.push(
+            "This framing must not show a full face. Do not use face-reference imagery to pull the crop upward; preserve the no-face framing as the authority."
+          );
+        }
+      } else {
+        parts.push(
+          `Use selected model profile "${modelProfile.name}": ${modelProfile.prompt}. Keep this same model identity consistent for every image in ${groupLabel || "the same product group"}.`
+        );
+      }
       if (modelProfile.styling) {
         parts.push(
           `Styling constraint (apply to ALL framing variants for this model): ${modelProfile.styling}. Keep this styling identical across every pose/angle/crop of this product group.`

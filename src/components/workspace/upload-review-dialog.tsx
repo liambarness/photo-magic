@@ -30,6 +30,9 @@ import {
   getModelPoseOption,
   getModelProfile,
   getModelWearerOption,
+  humanProfileHasFaceReferences,
+  modelProfileKindLabel,
+  poseUsesVisibleFace,
   productGroupLabel,
 } from "@/lib/model-shot";
 import { getTouchUpStrengthOption } from "@/lib/touch-up";
@@ -195,6 +198,10 @@ export function UploadReviewDialog({
   const wearer = getModelWearerOption(settings?.modelWearerType);
   const pose = getModelPoseOption(settings?.modelPoseType);
   const pinnedModel = getModelProfile(settings?.modelProfileId, allModelProfiles);
+  const pinnedModelNeedsFaceReferences =
+    pinnedModel?.kind === "human" &&
+    poseUsesVisibleFace(settings?.modelPoseType) &&
+    !humanProfileHasFaceReferences(pinnedModel);
   const touchUpStrength = getTouchUpStrengthOption(settings?.touchUpStrength);
   const backgroundMode = getBackgroundModeOption(settings?.backgroundMode);
 
@@ -394,8 +401,17 @@ export function UploadReviewDialog({
                       </div>
                       <div className="col-span-2 space-y-0.5">
                         <span className="text-muted-foreground">Model</span>
-                        <p>{pinnedModel?.name ?? "None selected"}</p>
+                        <p>
+                          {pinnedModel
+                            ? `${pinnedModel.name} - ${modelProfileKindLabel(pinnedModel)}`
+                            : "None selected"}
+                        </p>
                       </div>
+                      {pinnedModelNeedsFaceReferences && (
+                        <div className="col-span-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-[11px] leading-relaxed text-destructive">
+                          Add 1-4 face reference images to this human model before generating face-visible shots.
+                        </div>
+                      )}
                       {pinnedModel?.styling && (
                         <div className="col-span-2 space-y-0.5">
                           <span className="text-muted-foreground">Styling</span>
@@ -465,7 +481,7 @@ export function UploadReviewDialog({
                               <div className="min-w-0">
                                 <p className="text-xs font-medium">{group.groupLabel}</p>
                                 <p className="truncate text-[11px] text-muted-foreground">
-                                  Model: {group.profile.name}
+                                  Model: {group.profile.name} - {modelProfileKindLabel(group.profile)}
                                 </p>
                               </div>
                               <Badge variant="outline" className="shrink-0 text-[10px]">

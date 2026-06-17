@@ -34,7 +34,10 @@ import {
   MODEL_WEARER_OPTIONS,
   getModelPoseOption,
   getModelWearerOption,
+  humanProfileHasFaceReferences,
+  modelProfileKindLabel,
   modelProfilesForWearer,
+  poseUsesVisibleFace,
 } from "@/lib/model-shot";
 import { useModelProfileStore } from "@/stores/use-model-profile-store";
 import {
@@ -127,6 +130,10 @@ export function ParameterSidebar() {
   const modelProfiles = modelProfilesForWearer(wearer.value, allModelProfiles);
   const selectedModelProfile =
     modelProfiles.find((profile) => profile.id === activePreset.modelProfileId) ?? null;
+  const selectedModelNeedsFaceReferences =
+    selectedModelProfile?.kind === "human" &&
+    poseUsesVisibleFace(activePreset.modelPoseType) &&
+    !humanProfileHasFaceReferences(selectedModelProfile);
   const touchUpStrength = getTouchUpStrengthOption(activePreset.touchUpStrength);
   const backgroundMode = getBackgroundModeOption(activePreset.backgroundMode);
   const finalPrompt =
@@ -222,7 +229,9 @@ export function ParameterSidebar() {
                       Model
                     </label>
                     <span className="text-[11px] text-muted-foreground/60">
-                      {selectedModelProfile?.name ?? "None selected"}
+                      {selectedModelProfile
+                        ? `${selectedModelProfile.name} - ${modelProfileKindLabel(selectedModelProfile)}`
+                        : "None selected"}
                     </span>
                   </div>
                   <Select
@@ -239,7 +248,12 @@ export function ParameterSidebar() {
                     <SelectContent align="start" alignItemWithTrigger={false} className="min-w-64">
                       {modelProfiles.map((profile) => (
                         <SelectItem key={profile.id} value={profile.id}>
-                          {profile.name}
+                          <span className="flex w-full items-center justify-between gap-3">
+                            <span>{profile.name}</span>
+                            <span className="text-[10px] uppercase text-muted-foreground">
+                              {modelProfileKindLabel(profile)}
+                            </span>
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -247,6 +261,11 @@ export function ParameterSidebar() {
                   {!selectedModelProfile && (
                     <p className="text-[11px] text-destructive">
                       Select a model profile to generate model shots.
+                    </p>
+                  )}
+                  {selectedModelNeedsFaceReferences && (
+                    <p className="text-[11px] text-destructive">
+                      Add 1-4 face reference images before generating face-visible shots with this human model.
                     </p>
                   )}
                   {selectedModelProfile?.styling && (
@@ -446,6 +465,7 @@ export function ParameterSidebar() {
       />
 
       <ModelProfileEditor
+        key={`${profileEditorOpen ? "open" : "closed"}:${profileEditId ?? "new"}`}
         open={profileEditorOpen}
         onOpenChange={setProfileEditorOpen}
         editId={profileEditId}

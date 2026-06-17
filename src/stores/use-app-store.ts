@@ -17,6 +17,7 @@ import { DEFAULT_ACTIVE_PRESET } from "@/lib/constants";
 import { buildFinalPrompt } from "@/lib/final-prompt";
 import { normalizeModelProfileSelection } from "@/lib/model-shot";
 import { usePresetStore } from "./use-preset-store";
+import { useModelProfileStore } from "./use-model-profile-store";
 import { useSettingsStore } from "./use-settings-store";
 
 type WorkspaceStatusFilter = "done" | "all" | Exclude<SourcePhoto["status"], "done">;
@@ -230,7 +231,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!activePreset.presetId) return null;
     const preset = usePresetStore.getState().getPreset(activePreset.presetId);
     const { background, brandRules } = useSettingsStore.getState();
-    return buildFinalPrompt(preset, activePreset, { background, brandRules });
+    return buildFinalPrompt(preset, activePreset, {
+      allProfiles: useModelProfileStore.getState().profiles,
+      background,
+      brandRules,
+    });
   },
 
   snapshotSettings: () => {
@@ -253,7 +258,11 @@ export const useAppStore = create<AppState>((set, get) => ({
       touchUpBackground: preset?.shotMode === "touchup" ? activePreset.touchUpBackground : undefined,
       backgroundMode: activePreset.backgroundMode,
       notes: notes || undefined,
-      finalPrompt: buildFinalPrompt(preset, activePreset, { background, brandRules }),
+      finalPrompt: buildFinalPrompt(preset, activePreset, {
+        allProfiles: useModelProfileStore.getState().profiles,
+        background,
+        brandRules,
+      }),
     };
   },
 
