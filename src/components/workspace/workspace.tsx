@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Download, CheckSquare, X, Archive, ArchiveRestore, Trash2, Loader2 } from "lucide-react";
+import { Download, CheckSquare, X, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSettingsStore } from "@/stores/use-settings-store";
 import { buildFinalPrompt } from "@/lib/final-prompt";
@@ -216,25 +216,6 @@ function imageReadyKey(photo: SourcePhoto): string {
   return `${photo.id}:${photo.resultUrl ?? ""}:${photo.previewUrl}`;
 }
 
-function preloadBrowserImage(url: string): Promise<void> {
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.decoding = "async";
-    image.onload = () => resolve();
-    image.onerror = () => resolve();
-    image.src = url;
-    if (image.complete) resolve();
-  });
-}
-
-async function preloadPhotoImages(photo: SourcePhoto): Promise<void> {
-  if (photo.status !== "done" || !photo.resultUrl) return;
-  await Promise.all([
-    preloadBrowserImage(photo.resultUrl),
-    preloadBrowserImage(photo.previewUrl),
-  ]);
-}
-
 function settingsToActiveConfig(settings: PhotoSettings): ActivePresetConfig {
   return {
     presetId: settings.presetId,
@@ -292,8 +273,6 @@ export function Workspace() {
   const [reviewPrompt, setReviewPrompt] = useState("");
   const [reviewAdditionalParameters, setReviewAdditionalParameters] = useState("");
   const [readyImageKeys, setReadyImageKeys] = useState<Set<string>>(() => new Set());
-  const [loadingMore, setLoadingMore] = useState(false);
-  const preloadingImageKeys = useRef(new Set<string>());
   const resultsScrollRef = useRef<HTMLDivElement>(null);
 
   const processPhoto = useCallback(
@@ -833,28 +812,6 @@ export function Workspace() {
     [filteredPhotos, visibleCount]
   );
 
-  useEffect(() => {
-    for (const photo of visiblePhotos) {
-      if (photo.status !== "done" || !photo.resultUrl) continue;
-
-      const key = imageReadyKey(photo);
-      if (readyImageKeys.has(key) || preloadingImageKeys.current.has(key)) continue;
-
-      preloadingImageKeys.current.add(key);
-      void preloadPhotoImages(photo).then(() => {
-        preloadingImageKeys.current.delete(key);
-        setReadyImageKeys((current) => {
-          if (current.has(key)) return current;
-          const next = new Set(current);
-          next.add(key);
-          return next;
-        });
-      }).catch(() => {
-        preloadingImageKeys.current.delete(key);
-      });
-    }
-  }, [readyImageKeys, visiblePhotos]);
-
   const visiblePhotoIds = useMemo(() => new Set(filteredPhotos.map((p) => p.id)), [filteredPhotos]);
   const visibleSelectedIds = useMemo(
     () => selectedIds.filter((id) => visiblePhotoIds.has(id)),
@@ -862,38 +819,24 @@ export function Workspace() {
   );
   const selectedSet = useMemo(() => new Set(visibleSelectedIds), [visibleSelectedIds]);
 
-  const handleLoadMore = useCallback(async () => {
-    if (loadingMore) return;
-
+  const handleLoadMore = useCallback(() => {
     const nextPhotos = filteredPhotos.slice(visibleCount, visibleCount + VISIBLE_RESULTS_STEP);
     if (nextPhotos.length === 0) return;
 
-    setLoadingMore(true);
-    try {
-      const readyKeys: string[] = [];
-      await Promise.all(
-        nextPhotos.map(async (photo) => {
-          if (photo.status !== "done" || !photo.resultUrl) return;
-          await preloadPhotoImages(photo);
-          readyKeys.push(imageReadyKey(photo));
-        })
-      );
+    setVisibleCount((count) =>
+      Math.min(count + VISIBLE_RESULTS_STEP, filteredPhotos.length)
+    );
+  }, [filteredPhotos, setVisibleCount, visibleCount]);
 
-      if (readyKeys.length > 0) {
-        setReadyImageKeys((current) => {
-          const next = new Set(current);
-          readyKeys.forEach((key) => next.add(key));
-          return next;
-        });
-      }
-
-      setVisibleCount((count) =>
-        Math.min(count + VISIBLE_RESULTS_STEP, filteredPhotos.length)
-      );
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [filteredPhotos, loadingMore, setVisibleCount, visibleCount]);
+  const markImageReady = useCallback((photo: SourcePhoto) => {
+    const key = imageReadyKey(photo);
+    setReadyImageKeys((current) => {
+      if (current.has(key)) return current;
+      const next = new Set(current);
+      next.add(key);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     resultsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
@@ -1197,6 +1140,7 @@ export function Workspace() {
                       onArchive={() => handleSetVisibility([photo.id], "archived")}
                       onRestore={() => handleSetVisibility([photo.id], "active")}
                       onDelete={() => handleDeletePhotos([photo.id])}
+                      onImageReady={() => markImageReady(photo)}
                     />
                   ))}
                 </div>
@@ -1205,13 +1149,9 @@ export function Workspace() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => void handleLoadMore()}
-                      disabled={loadingMore}
+                      onClick={handleLoadMore}
                     >
-                      {loadingMore && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                      {loadingMore
-                        ? "Loading next images..."
-                        : `Load ${Math.min(VISIBLE_RESULTS_STEP, hiddenCount)} more`}
+                      {`Load ${Math.min(VISIBLE_RESULTS_STEP, hiddenCount)} more`}
                     </Button>
                   </div>
                 )}

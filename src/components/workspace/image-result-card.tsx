@@ -17,6 +17,7 @@ interface ImageResultCardProps {
   onArchive: () => void;
   onRestore: () => void;
   onDelete: () => void;
+  onImageReady: () => void;
 }
 
 function settingsSummary(photo: SourcePhoto): string {
@@ -52,6 +53,7 @@ export function ImageResultCard({
   onArchive,
   onRestore,
   onDelete,
+  onImageReady,
 }: ImageResultCardProps) {
   const isDone = photo.status === "done";
   const isFinished = isDone || photo.status === "error";
@@ -110,16 +112,18 @@ export function ImageResultCard({
             {!imageReady && (
               <ImageSkeleton previewUrl={photo.previewUrl} />
             )}
-            {imageReady && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={photo.resultUrl}
-                alt={`Result: ${photo.name}`}
-                className="h-full w-full object-cover"
-                loading="eager"
-                decoding="async"
-              />
-            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photo.resultUrl}
+              alt={`Result: ${photo.name}`}
+              className={`h-full w-full object-cover transition-opacity duration-150 ${
+                imageReady ? "opacity-100" : "opacity-0"
+              }`}
+              loading="lazy"
+              decoding="async"
+              onLoad={onImageReady}
+              onError={onImageReady}
+            />
           </>
         )}
         {photo.status === "error" && (
@@ -135,7 +139,7 @@ export function ImageResultCard({
             src={photo.previewUrl}
             alt={photo.name}
             className={`h-full w-full object-cover ${isDone && !imageReady ? "opacity-70" : ""}`}
-            loading={isDone ? "eager" : "lazy"}
+            loading="lazy"
             decoding="async"
           />
         </div>
@@ -265,7 +269,7 @@ function ImageSkeleton({ previewUrl }: { previewUrl: string }) {
         alt=""
         aria-hidden="true"
         className="absolute inset-0 h-full w-full scale-105 object-cover opacity-45 blur-sm"
-        loading="eager"
+        loading="lazy"
         decoding="async"
       />
       <div className="absolute inset-0 animate-pulse bg-background/35" />
