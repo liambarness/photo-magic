@@ -15,7 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Download, CheckSquare, X, Archive, ArchiveRestore, Trash2, Loader2 } from "lucide-react";
+import { Download, CheckSquare, X, Archive, ArchiveRestore, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useSettingsStore } from "@/stores/use-settings-store";
 import { buildFinalPrompt } from "@/lib/final-prompt";
@@ -38,6 +38,7 @@ import {
 import { useModelProfileStore } from "@/stores/use-model-profile-store";
 import type {
   ActivePresetConfig,
+  BackgroundMode,
   ModelPoseType,
   ModelProfileSelection,
   ModelViewType,
@@ -219,25 +220,6 @@ function imageReadyKey(photo: SourcePhoto): string {
   return `${photo.id}:${photo.resultUrl ?? ""}:${photo.previewUrl}`;
 }
 
-function preloadBrowserImage(url: string): Promise<void> {
-  return new Promise((resolve) => {
-    const image = new Image();
-    image.decoding = "async";
-    image.onload = () => resolve();
-    image.onerror = () => resolve();
-    image.src = url;
-    if (image.complete) resolve();
-  });
-}
-
-async function preloadPhotoImages(photo: SourcePhoto): Promise<void> {
-  if (photo.status !== "done" || !photo.resultUrl) return;
-  await Promise.all([
-    preloadBrowserImage(photo.resultUrl),
-    preloadBrowserImage(photo.previewUrl),
-  ]);
-}
-
 function settingsToActiveConfig(settings: PhotoSettings): ActivePresetConfig {
   return {
     presetId: settings.presetId,
@@ -249,6 +231,7 @@ function settingsToActiveConfig(settings: PhotoSettings): ActivePresetConfig {
     modelProfileId: settings.modelProfileId ?? "",
     touchUpStrength: settings.touchUpStrength ?? "standard",
     touchUpBackground: settings.touchUpBackground ?? "standard_gray",
+    backgroundMode: settings.backgroundMode ?? "global",
   };
 }
 
@@ -265,6 +248,8 @@ export function Workspace() {
   const imageSize = useSettingsStore((s) => s.imageSize);
   const imageQuality = useSettingsStore((s) => s.imageQuality);
   const outputFormat = useSettingsStore((s) => s.outputFormat);
+  const background = useSettingsStore((s) => s.background);
+  const brandRules = useSettingsStore((s) => s.brandRules);
   const timeoutMs = useSettingsStore((s) => s.timeoutSeconds) * 1000;
   const selectedIds = useAppStore((s) => s.selectedIds);
   const historyLoaded = useAppStore((s) => s._historyLoaded);
@@ -295,8 +280,6 @@ export function Workspace() {
   const [reviewPrompt, setReviewPrompt] = useState("");
   const [reviewAdditionalParameters, setReviewAdditionalParameters] = useState("");
   const [readyImageKeys, setReadyImageKeys] = useState<Set<string>>(() => new Set());
-  const [loadingMore, setLoadingMore] = useState(false);
-  const preloadingImageKeys = useRef(new Set<string>());
   const resultsScrollRef = useRef<HTMLDivElement>(null);
 
   const processPhoto = useCallback(
@@ -491,7 +474,11 @@ export function Workspace() {
   );
 
   const buildReviewSettingsForPreset = useCallback(
-    (presetId: string, additionalParameters?: string): { settings: PhotoSettings; prompt: string } | null => {
+    (
+      presetId: string,
+      additionalParameters?: string,
+      backgroundMode?: BackgroundMode
+    ): { settings: PhotoSettings; prompt: string } | null => {
       const preset = presets.find((p) => p.id === presetId);
       if (!preset) return null;
 
@@ -508,13 +495,17 @@ export function Workspace() {
               modelProfileId: "" as ModelProfileSelection,
               touchUpStrength: "standard" as TouchUpStrength,
               touchUpBackground: "standard_gray" as TouchUpBackground,
+              backgroundMode: "global" as BackgroundMode,
             };
       const config = {
         ...baseConfig,
+        backgroundMode: backgroundMode ?? baseConfig.backgroundMode,
         notes: additionalParameters ?? baseConfig.notes,
       };
       const prompt = buildFinalPrompt(preset, config, {
         allProfiles: allModelProfiles,
+        background,
+        brandRules,
       });
       if (!prompt) return null;
 
@@ -532,12 +523,13 @@ export function Workspace() {
           modelProfileId: preset.shotMode === "model" ? config.modelProfileId : undefined,
           touchUpStrength: preset.shotMode === "touchup" ? config.touchUpStrength : undefined,
           touchUpBackground: preset.shotMode === "touchup" ? config.touchUpBackground : undefined,
+          backgroundMode: config.backgroundMode,
           notes: notes || undefined,
           finalPrompt: prompt,
         },
       };
     },
-    [activePreset, allModelProfiles, presets]
+    [activePreset, allModelProfiles, background, brandRules, presets]
   );
 
   const handleReviewPresetChange = useCallback(
@@ -562,7 +554,11 @@ export function Workspace() {
       setReviewAdditionalParameters(value);
       if (!reviewPresetId) return;
 
-      const next = buildReviewSettingsForPreset(reviewPresetId, value);
+      const next = buildReviewSettingsForPreset(
+        reviewPresetId,
+        value,
+        reviewSettings?.backgroundMode
+      );
       if (!next) {
         setReviewSettings(null);
         setReviewPrompt("");
@@ -572,7 +568,28 @@ export function Workspace() {
       setReviewSettings(next.settings);
       setReviewPrompt(next.prompt);
     },
-    [buildReviewSettingsForPreset, reviewPresetId]
+    [buildReviewSettingsForPreset, reviewPresetId, reviewSettings?.backgroundMode]
+  );
+
+  const handleReviewBackgroundModeChange = useCallback(
+    (value: BackgroundMode) => {
+      if (!reviewPresetId) return;
+
+      const next = buildReviewSettingsForPreset(
+        reviewPresetId,
+        reviewAdditionalParameters,
+        value
+      );
+      if (!next) {
+        setReviewSettings(null);
+        setReviewPrompt("");
+        return;
+      }
+
+      setReviewSettings(next.settings);
+      setReviewPrompt(next.prompt);
+    },
+    [buildReviewSettingsForPreset, reviewAdditionalParameters, reviewPresetId]
   );
 
   const stageFiles = useCallback(
@@ -729,6 +746,8 @@ export function Workspace() {
           productGroupLabel: itemSettings.productGroupLabel,
           viewType: item.viewType,
           allProfiles: allModelProfiles,
+          background,
+          brandRules,
         }) ?? reviewPrompt;
 
       resolved.push({
@@ -741,7 +760,7 @@ export function Workspace() {
       });
     }
     return resolved;
-  }, [allModelProfiles, presets, reviewItems, reviewPresetId, reviewPrompt, reviewSettings]);
+  }, [allModelProfiles, background, brandRules, presets, reviewItems, reviewPresetId, reviewPrompt, reviewSettings]);
 
   const approveReview = useCallback(() => {
     if (!reviewSettings || !reviewPrompt || !reviewPresetId || reviewItems.length === 0) {
@@ -856,28 +875,6 @@ export function Workspace() {
     [filteredPhotos, visibleCount]
   );
 
-  useEffect(() => {
-    for (const photo of visiblePhotos) {
-      if (photo.status !== "done" || !photo.resultUrl) continue;
-
-      const key = imageReadyKey(photo);
-      if (readyImageKeys.has(key) || preloadingImageKeys.current.has(key)) continue;
-
-      preloadingImageKeys.current.add(key);
-      void preloadPhotoImages(photo).then(() => {
-        preloadingImageKeys.current.delete(key);
-        setReadyImageKeys((current) => {
-          if (current.has(key)) return current;
-          const next = new Set(current);
-          next.add(key);
-          return next;
-        });
-      }).catch(() => {
-        preloadingImageKeys.current.delete(key);
-      });
-    }
-  }, [readyImageKeys, visiblePhotos]);
-
   const visiblePhotoIds = useMemo(() => new Set(filteredPhotos.map((p) => p.id)), [filteredPhotos]);
   const visibleSelectedIds = useMemo(
     () => selectedIds.filter((id) => visiblePhotoIds.has(id)),
@@ -885,38 +882,24 @@ export function Workspace() {
   );
   const selectedSet = useMemo(() => new Set(visibleSelectedIds), [visibleSelectedIds]);
 
-  const handleLoadMore = useCallback(async () => {
-    if (loadingMore) return;
-
+  const handleLoadMore = useCallback(() => {
     const nextPhotos = filteredPhotos.slice(visibleCount, visibleCount + VISIBLE_RESULTS_STEP);
     if (nextPhotos.length === 0) return;
 
-    setLoadingMore(true);
-    try {
-      const readyKeys: string[] = [];
-      await Promise.all(
-        nextPhotos.map(async (photo) => {
-          if (photo.status !== "done" || !photo.resultUrl) return;
-          await preloadPhotoImages(photo);
-          readyKeys.push(imageReadyKey(photo));
-        })
-      );
+    setVisibleCount((count) =>
+      Math.min(count + VISIBLE_RESULTS_STEP, filteredPhotos.length)
+    );
+  }, [filteredPhotos, setVisibleCount, visibleCount]);
 
-      if (readyKeys.length > 0) {
-        setReadyImageKeys((current) => {
-          const next = new Set(current);
-          readyKeys.forEach((key) => next.add(key));
-          return next;
-        });
-      }
-
-      setVisibleCount((count) =>
-        Math.min(count + VISIBLE_RESULTS_STEP, filteredPhotos.length)
-      );
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [filteredPhotos, loadingMore, setVisibleCount, visibleCount]);
+  const markImageReady = useCallback((photo: SourcePhoto) => {
+    const key = imageReadyKey(photo);
+    setReadyImageKeys((current) => {
+      if (current.has(key)) return current;
+      const next = new Set(current);
+      next.add(key);
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     resultsScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
@@ -1220,6 +1203,7 @@ export function Workspace() {
                       onArchive={() => handleSetVisibility([photo.id], "archived")}
                       onRestore={() => handleSetVisibility([photo.id], "active")}
                       onDelete={() => handleDeletePhotos([photo.id])}
+                      onImageReady={() => markImageReady(photo)}
                     />
                   ))}
                 </div>
@@ -1228,13 +1212,9 @@ export function Workspace() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => void handleLoadMore()}
-                      disabled={loadingMore}
+                      onClick={handleLoadMore}
                     >
-                      {loadingMore && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
-                      {loadingMore
-                        ? "Loading next images..."
-                        : `Load ${Math.min(VISIBLE_RESULTS_STEP, hiddenCount)} more`}
+                      {`Load ${Math.min(VISIBLE_RESULTS_STEP, hiddenCount)} more`}
                     </Button>
                   </div>
                 )}
@@ -1259,6 +1239,7 @@ export function Workspace() {
         allModelProfiles={allModelProfiles}
         onPresetChange={handleReviewPresetChange}
         onAdditionalParametersChange={handleReviewAdditionalParametersChange}
+        onBackgroundModeChange={handleReviewBackgroundModeChange}
         onProductGroupChange={updateReviewItemGroup}
         onViewTypeChange={updateReviewItemViewType}
         onApplyGrouping={applyReviewGrouping}

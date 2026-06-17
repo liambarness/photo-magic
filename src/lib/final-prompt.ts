@@ -14,6 +14,7 @@ import {
   getTouchUpBackgroundOption,
   getTouchUpStrengthOption,
 } from "@/lib/touch-up";
+import { backgroundPromptForMode } from "@/lib/background-mode";
 
 interface FinalPromptOptions {
   modelProfileId?: string | null;
@@ -21,6 +22,8 @@ interface FinalPromptOptions {
   productGroupLabel?: string;
   viewType?: string;
   allProfiles?: ModelProfile[];
+  background?: string;
+  brandRules?: string;
 }
 
 const MODEL_RUNTIME_PHRASES = [
@@ -64,6 +67,19 @@ export function buildFinalPrompt(
       ? modelSafePresetPrompt(preset.polishedPrompt, preset.name)
       : preset.polishedPrompt.trim();
   const parts = [basePrompt].filter(Boolean);
+  const preservesTouchUpBackground =
+    preset.shotMode === "touchup" &&
+    activePreset.backgroundMode === "global" &&
+    activePreset.touchUpBackground === "preserve";
+
+  if (!preservesTouchUpBackground) {
+    parts.push(backgroundPromptForMode(activePreset.backgroundMode, options.background ?? ""));
+  }
+
+  const brandRules = options.brandRules?.trim();
+  if (brandRules) {
+    parts.push(`Brand rules: ${brandRules}`);
+  }
 
   if (preset.shotMode === "product") {
     parts.push(
@@ -145,12 +161,14 @@ export function buildFinalPrompt(
 
   if (preset.shotMode === "touchup") {
     const strength = getTouchUpStrengthOption(activePreset.touchUpStrength);
-    const background = getTouchUpBackgroundOption(activePreset.touchUpBackground);
     parts.push(
       "Touch-up workflow: the uploaded source image already contains the model/person and product. Preserve the exact person, face if visible, skin tone, pose, body proportions, product placement, product fit, logo placement, artwork, color, graphic scale, garment shape, and source composition."
     );
     parts.push(strength.prompt);
-    parts.push(background.prompt);
+    if (preservesTouchUpBackground) {
+      const background = getTouchUpBackgroundOption(activePreset.touchUpBackground);
+      parts.push(background.prompt);
+    }
     parts.push(
       "Remove casual phone or DSLR snapshot artifacts, harsh shadows, uneven lighting, clutter, noise, blur, color cast, and distracting background elements. Do not replace the person with a new AI model. Do not change identity, body shape, pose, product design, logo, artwork, colors, or fit. Do not invent new graphics or product details."
     );

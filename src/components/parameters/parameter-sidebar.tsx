@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useAppStore } from "@/stores/use-app-store";
 import { usePresetStore } from "@/stores/use-preset-store";
+import { useSettingsStore } from "@/stores/use-settings-store";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +44,13 @@ import {
   TOUCH_UP_STRENGTH_OPTIONS,
   getTouchUpStrengthOption,
 } from "@/lib/touch-up";
+import {
+  BACKGROUND_MODE_OPTIONS,
+  getBackgroundModeOption,
+} from "@/lib/background-mode";
+import { buildFinalPrompt } from "@/lib/final-prompt";
 import type {
+  BackgroundMode,
   ModelPoseType,
   ModelProfileSelection,
   ModelWearerType,
@@ -82,7 +89,9 @@ export function ParameterSidebar() {
   const saveNotes = useAppStore((s) => s.saveNotes);
   const updateModelShotOption = useAppStore((s) => s.updateModelShotOption);
   const updateTouchUpOption = useAppStore((s) => s.updateTouchUpOption);
-  const getActivePrompt = useAppStore((s) => s.getActivePrompt);
+  const updateBackgroundMode = useAppStore((s) => s.updateBackgroundMode);
+  const settingsBackground = useSettingsStore((s) => s.background);
+  const settingsBrandRules = useSettingsStore((s) => s.brandRules);
 
   const handleSaveNotes = () => {
     saveNotes();
@@ -126,7 +135,13 @@ export function ParameterSidebar() {
     poseUsesVisibleFace(activePreset.modelPoseType) &&
     !humanProfileHasFaceReferences(selectedModelProfile);
   const touchUpStrength = getTouchUpStrengthOption(activePreset.touchUpStrength);
-  const finalPrompt = getActivePrompt() ?? "";
+  const backgroundMode = getBackgroundModeOption(activePreset.backgroundMode);
+  const finalPrompt =
+    buildFinalPrompt(preset, activePreset, {
+      background: settingsBackground,
+      brandRules: settingsBrandRules,
+      allProfiles: allModelProfiles,
+    }) ?? "";
   const promptWordCount = finalPrompt ? finalPrompt.trim().split(/\s+/).length : 0;
 
   const handleCopyPrompt = async () => {
@@ -318,6 +333,30 @@ export function ParameterSidebar() {
                 </p>
               </div>
             )}
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs font-medium text-muted-foreground">
+                  Background
+                </label>
+                <span className="text-[11px] text-muted-foreground/60">
+                  {backgroundMode.shortLabel}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {BACKGROUND_MODE_OPTIONS.map((option) => (
+                  <SettingChoice
+                    key={option.value}
+                    label={option.shortLabel}
+                    active={backgroundMode.value === option.value}
+                    onClick={() => updateBackgroundMode(option.value as BackgroundMode)}
+                  />
+                ))}
+              </div>
+              <p className="text-[11px] leading-relaxed text-muted-foreground/60">
+                Global uses Prompt Context. Flat White uses a pure #FFFFFF background.
+              </p>
+            </div>
 
             <div className="space-y-2">
               <div className="flex items-end justify-between gap-2">

@@ -15,6 +15,7 @@ export type ModelViewType = "front" | "back" | "side" | "detail" | "unknown";
 export type ModelProfileSelection = string;
 export type TouchUpStrength = "light" | "standard" | "deep";
 export type TouchUpBackground = "standard_gray" | "preserve";
+export type BackgroundMode = "global" | "flat_white";
 
 export interface Preset {
   id: string;
@@ -39,6 +40,7 @@ export interface ActivePresetConfig {
   modelProfileId: ModelProfileSelection;
   touchUpStrength: TouchUpStrength;
   touchUpBackground: TouchUpBackground;
+  backgroundMode: BackgroundMode;
 }
 
 export interface PhotoSettings {
@@ -56,6 +58,7 @@ export interface PhotoSettings {
   viewType?: ModelViewType;
   touchUpStrength?: TouchUpStrength;
   touchUpBackground?: TouchUpBackground;
+  backgroundMode?: BackgroundMode;
   notes?: string;
   finalPrompt?: string | null;
 }
