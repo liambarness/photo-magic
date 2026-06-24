@@ -26,17 +26,32 @@ interface FinalPromptOptions {
   brandRules?: string;
 }
 
+const MODEL_RUNTIME_REWRITES = [
+  {
+    pattern: /\bCreate\s+an?\s+(?:full[-\s]?body|upper[-\s]?body|lower[-\s]?body)\s+studio\s+shot\b/gi,
+    replacement: "Create a studio catalog shot",
+  },
+  {
+    pattern: /\bCreate\s+an?\s+(?:full[-\s]?body|upper[-\s]?body|lower[-\s]?body)\s+catalog\s+shot\b/gi,
+    replacement: "Create a catalog shot",
+  },
+];
+
 const MODEL_RUNTIME_PHRASES = [
   /\s*,?\s*\bcropped\s+from\s+[^,.]*(?:head|face|neck|shoulder|torso|waist|bellybutton|hips|legs?|feet)[^,.]*(?=,|\.)/gi,
   /\s*,?\s*\bframed\s+from\s+[^,.]*(?:head|face|neck|shoulder|torso|waist|bellybutton|hips|legs?|feet)[^,.]*(?=,|\.)/gi,
   /\s*,?\s*\bframe\s+the\s+[^.]*?(?:head|face|neck|shoulder|torso|waist|bellybutton|hips|legs?|feet)[^.]*\./gi,
   /\s*,?\s*\bcrop\s+[^.]*?(?:head|face|neck|shoulder|torso|waist|bellybutton|hips|legs?|feet)[^.]*\./gi,
-  /\s*,?\s*\b(?:full body|upper body|lower body|face visible|face not visible|no face|head to toe|head-to-toe)\b[^,.]*(?=,|\.)/gi,
+  /\s*,?\s*\b(?:full[-\s]?body|upper[-\s]?body|lower[-\s]?body|face visible|face not visible|no face|head to toe|head-to-toe)\b[^,.]*(?=,|\.)/gi,
   /\s*\bVary[^.]*model[^.]*appearance[^.]*\./gi,
 ];
 
-function modelSafePresetPrompt(prompt: string, presetName: string): string {
+export function sanitizeModelRuntimePromptText(prompt: string): string {
   let cleaned = prompt.trim();
+
+  for (const { pattern, replacement } of MODEL_RUNTIME_REWRITES) {
+    cleaned = cleaned.replace(pattern, replacement);
+  }
 
   for (const pattern of MODEL_RUNTIME_PHRASES) {
     cleaned = cleaned.replace(pattern, "");
@@ -47,6 +62,12 @@ function modelSafePresetPrompt(prompt: string, presetName: string): string {
     .replace(/\s+\./g, ".")
     .replace(/\s{2,}/g, " ")
     .trim();
+
+  return cleaned;
+}
+
+function modelSafePresetPrompt(prompt: string, presetName: string): string {
+  const cleaned = sanitizeModelRuntimePromptText(prompt);
 
   return cleaned || `Studio catalog photo for ${presetName}.`;
 }
@@ -122,7 +143,7 @@ export function buildFinalPrompt(
         if (usesVisibleFace) {
           if (humanProfileHasFaceReferences(modelProfile)) {
             parts.push(
-              "Use the attached face reference images as the authoritative source for the model's facial identity, facial features, skin tone, and natural expression. Use the uploaded product/source image as the authoritative source for the garment/product. Do not copy clothing, background, pose, lighting, or camera angle from the face reference images."
+              "Use the attached face reference images as the authoritative source for the model's facial identity, facial features, skin tone, and natural expression. If the uploaded product/source image already contains a person or model wearing the product, treat this as an identity-replacement edit: replace that person's facial identity with the selected human model's face from the references while preserving the garment/product, pose, body framing, visible body extent, subject scale, canvas composition, product fit, logo placement, artwork, colors, camera angle, and background from the uploaded product/source image. In that source-person case, the selected model pose controls face visibility only; it must not override the source crop, zoom level, pose, or visible body extent. Do not zoom out, reframe, convert an upper-body source crop into a full-body shot, or add legs, feet, shoes, hands, or body areas that are not visible in the source image. If the uploaded product/source image is product-only or does not show a person wearing the product, generate the selected model shot normally and use the face references only for identity. Do not preserve the source person's original face. Do not copy clothing, background, pose, lighting, or camera angle from the face reference images."
             );
           } else {
             parts.push(

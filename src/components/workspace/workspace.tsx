@@ -322,7 +322,7 @@ export function Workspace() {
         }
 
         const data = await res.json();
-        setPhotoStatus(photoId, "done", data.resultUrl, null, data.cost ?? 0, data.usage ?? null);
+        setPhotoStatus(photoId, "done", data.resultUrl, null, data.cost ?? 0, data.usage ?? null, data.generationDebug ?? null);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed";
         setPhotoStatus(photoId, "error", null, msg);
@@ -352,6 +352,7 @@ export function Workspace() {
         visibility: "active",
         cost: 0,
         usage: null,
+        generationDebug: null,
         createdAt: now,
         updatedAt: now,
       }));

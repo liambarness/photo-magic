@@ -13,7 +13,8 @@ import {
   poseUsesVisibleFace,
   type ModelFaceReference,
 } from "@/lib/model-shot";
-import type { ModelPoseType } from "@/types";
+import { sanitizeModelRuntimePromptText } from "@/lib/final-prompt";
+import type { GenerationDebug, ModelPoseType } from "@/types";
 
 const MIME: Record<string, string> = {
   png: "image/png",
@@ -24,6 +25,8 @@ const MIME: Record<string, string> = {
 const INPUT_IMAGE_RATE = 8.0 / 1_000_000;
 const INPUT_TEXT_RATE = 5.0 / 1_000_000;
 const OUTPUT_IMAGE_RATE = 30.0 / 1_000_000;
+const HUMAN_FACE_REPLACEMENT_INSTRUCTION =
+  "Human face reference workflow: input image 1 is the product/source image. The additional attached images are face references for the selected human model. If input image 1 already contains a person or model wearing the product, treat this as an identity-replacement edit: replace that person's facial identity with the selected human model's face from the references while preserving the garment/product, pose, body framing, visible body extent, subject scale, canvas composition, product fit, logo placement, artwork, colors, camera angle, and background from input image 1. In that source-person case, the selected model pose controls face visibility only; it must not override the source crop, zoom level, pose, or visible body extent. Do not zoom out, reframe, convert an upper-body source crop into a full-body shot, or add legs, feet, shoes, hands, or body areas that are not visible in input image 1. If input image 1 is product-only or does not show a person wearing the product, generate the selected model shot normally and use the face references only for identity. Do not preserve the source person's original face. Do not copy clothing, background, pose, lighting, or camera angle from the face reference images.";
 
 function estimateCost(usage: Record<string, unknown> | undefined | null): number {
   if (!usage) return 0;
@@ -99,6 +102,22 @@ export async function POST(request: Request) {
     }
 
     inputImages.push(...faceReferences.files);
+    const runtimeSafePrompt =
+      historyItem?.usedSettings.shotMode === "model" || (modelProfileId && modelPoseType)
+        ? sanitizeModelRuntimePromptText(prompt)
+        : prompt;
+    const effectivePrompt =
+      faceReferences.files.length > 0
+        ? `${runtimeSafePrompt} ${HUMAN_FACE_REPLACEMENT_INSTRUCTION}`
+        : runtimeSafePrompt;
+    const generationDebug: GenerationDebug = {
+      modelProfileId: modelProfileId || undefined,
+      modelProfileName: faceReferences.modelProfileName,
+      modelProfileKind: faceReferences.modelProfileKind,
+      modelPoseType,
+      faceReferenceCount: faceReferences.files.length,
+      inputImageCount: inputImages.length,
+    };
 
     const format = outputFormat;
     const quality = imageQuality;
@@ -107,12 +126,11 @@ export async function POST(request: Request) {
     const editParams = {
       model: "gpt-image-2",
       image: inputImages.length === 1 ? inputImages[0] : inputImages,
-      prompt,
+      prompt: effectivePrompt,
       n: 1,
       size: imageSize as "1024x1024" | "1536x1024" | "1024x1536",
       quality: quality as "low" | "medium" | "high" | "auto",
       output_format: format as "png" | "jpeg" | "webp",
-      ...(faceReferences.files.length > 0 ? { input_fidelity: "high" as const } : {}),
     };
     // The SDK accepts a single File or an array, matching the Images edit API's image[] form field.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -143,6 +161,7 @@ export async function POST(request: Request) {
       resultUrl,
       cost,
       usage: tokenUsage,
+      generationDebug,
       label: label || undefined,
       batchFolder: folder,
     });
@@ -151,6 +170,7 @@ export async function POST(request: Request) {
       resultUrl: `${blobServingUrl(resultUrl)}&t=${Date.now()}`,
       usage: tokenUsage,
       cost,
+      generationDebug,
     });
   } catch (err) {
     console.error("Touch-up error:", err);
@@ -205,25 +225,26 @@ async function resolveHumanFaceReferences(
   modelProfileId: string,
   modelPoseType: ModelPoseType | undefined
 ): Promise<
-  | { status: "none"; files: File[] }
-  | { status: "ready"; files: File[] }
-  | { status: "missing-profile"; files: File[] }
-  | { status: "missing-required"; files: File[] }
+  | { status: "none"; files: File[]; modelProfileKind: "none"; modelProfileName?: string }
+  | { status: "ready"; files: File[]; modelProfileKind: "human"; modelProfileName: string }
+  | { status: "missing-profile"; files: File[]; modelProfileKind: "missing"; modelProfileName?: string }
+  | { status: "missing-required"; files: File[]; modelProfileKind: "human"; modelProfileName: string }
+  | { status: "none"; files: File[]; modelProfileKind: "ai"; modelProfileName: string }
 > {
   if (!modelProfileId || !poseUsesVisibleFace(modelPoseType)) {
-    return { status: "none", files: [] };
+    return { status: "none", files: [], modelProfileKind: "none" };
   }
 
   const profiles = [...STARTER_MODEL_PROFILES, ...(await getModelProfiles())];
   const profile = getModelProfile(modelProfileId, profiles);
   if (!profile) {
-    return { status: "missing-profile", files: [] };
+    return { status: "missing-profile", files: [], modelProfileKind: "missing" };
   }
   if (profile?.kind !== "human") {
-    return { status: "none", files: [] };
+    return { status: "none", files: [], modelProfileKind: "ai", modelProfileName: profile.name };
   }
   if (!humanProfileHasFaceReferences(profile)) {
-    return { status: "missing-required", files: [] };
+    return { status: "missing-required", files: [], modelProfileKind: "human", modelProfileName: profile.name };
   }
 
   const files = await Promise.all(
@@ -234,8 +255,8 @@ async function resolveHumanFaceReferences(
 
   const readable = files.filter((file): file is File => Boolean(file));
   return readable.length > 0
-    ? { status: "ready", files: readable }
-    : { status: "missing-required", files: [] };
+    ? { status: "ready", files: readable, modelProfileKind: "human", modelProfileName: profile.name }
+    : { status: "missing-required", files: [], modelProfileKind: "human", modelProfileName: profile.name };
 }
 
 async function referenceToFile(reference: ModelFaceReference, index: number): Promise<File | null> {
