@@ -26,17 +26,32 @@ interface FinalPromptOptions {
   brandRules?: string;
 }
 
+const MODEL_RUNTIME_REWRITES = [
+  {
+    pattern: /\bCreate\s+an?\s+(?:full[-\s]?body|upper[-\s]?body|lower[-\s]?body)\s+studio\s+shot\b/gi,
+    replacement: "Create a studio catalog shot",
+  },
+  {
+    pattern: /\bCreate\s+an?\s+(?:full[-\s]?body|upper[-\s]?body|lower[-\s]?body)\s+catalog\s+shot\b/gi,
+    replacement: "Create a catalog shot",
+  },
+];
+
 const MODEL_RUNTIME_PHRASES = [
   /\s*,?\s*\bcropped\s+from\s+[^,.]*(?:head|face|neck|shoulder|torso|waist|bellybutton|hips|legs?|feet)[^,.]*(?=,|\.)/gi,
   /\s*,?\s*\bframed\s+from\s+[^,.]*(?:head|face|neck|shoulder|torso|waist|bellybutton|hips|legs?|feet)[^,.]*(?=,|\.)/gi,
   /\s*,?\s*\bframe\s+the\s+[^.]*?(?:head|face|neck|shoulder|torso|waist|bellybutton|hips|legs?|feet)[^.]*\./gi,
   /\s*,?\s*\bcrop\s+[^.]*?(?:head|face|neck|shoulder|torso|waist|bellybutton|hips|legs?|feet)[^.]*\./gi,
-  /\s*,?\s*\b(?:full body|upper body|lower body|face visible|face not visible|no face|head to toe|head-to-toe)\b[^,.]*(?=,|\.)/gi,
+  /\s*,?\s*\b(?:full[-\s]?body|upper[-\s]?body|lower[-\s]?body|face visible|face not visible|no face|head to toe|head-to-toe)\b[^,.]*(?=,|\.)/gi,
   /\s*\bVary[^.]*model[^.]*appearance[^.]*\./gi,
 ];
 
-function modelSafePresetPrompt(prompt: string, presetName: string): string {
+export function sanitizeModelRuntimePromptText(prompt: string): string {
   let cleaned = prompt.trim();
+
+  for (const { pattern, replacement } of MODEL_RUNTIME_REWRITES) {
+    cleaned = cleaned.replace(pattern, replacement);
+  }
 
   for (const pattern of MODEL_RUNTIME_PHRASES) {
     cleaned = cleaned.replace(pattern, "");
@@ -47,6 +62,12 @@ function modelSafePresetPrompt(prompt: string, presetName: string): string {
     .replace(/\s+\./g, ".")
     .replace(/\s{2,}/g, " ")
     .trim();
+
+  return cleaned;
+}
+
+function modelSafePresetPrompt(prompt: string, presetName: string): string {
+  const cleaned = sanitizeModelRuntimePromptText(prompt);
 
   return cleaned || `Studio catalog photo for ${presetName}.`;
 }

@@ -13,6 +13,7 @@ import {
   poseUsesVisibleFace,
   type ModelFaceReference,
 } from "@/lib/model-shot";
+import { sanitizeModelRuntimePromptText } from "@/lib/final-prompt";
 import type { GenerationDebug, ModelPoseType } from "@/types";
 
 const MIME: Record<string, string> = {
@@ -101,10 +102,14 @@ export async function POST(request: Request) {
     }
 
     inputImages.push(...faceReferences.files);
+    const runtimeSafePrompt =
+      historyItem?.usedSettings.shotMode === "model" || (modelProfileId && modelPoseType)
+        ? sanitizeModelRuntimePromptText(prompt)
+        : prompt;
     const effectivePrompt =
       faceReferences.files.length > 0
-        ? `${prompt} ${HUMAN_FACE_REPLACEMENT_INSTRUCTION}`
-        : prompt;
+        ? `${runtimeSafePrompt} ${HUMAN_FACE_REPLACEMENT_INSTRUCTION}`
+        : runtimeSafePrompt;
     const generationDebug: GenerationDebug = {
       modelProfileId: modelProfileId || undefined,
       modelProfileName: faceReferences.modelProfileName,
