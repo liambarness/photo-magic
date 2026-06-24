@@ -250,7 +250,7 @@ export function ModelProfileEditor({
       const uploadedFaceReferences = inferredKind === "human" ? await uploadFaceReferences(profileId) : undefined;
 
       if (isNew) {
-        addProfile({
+        await addProfile({
           id: profileId,
           kind: inferredKind,
           name: trimmedName,
@@ -263,7 +263,7 @@ export function ModelProfileEditor({
         });
         toast.success(`Created "${trimmedName}"`);
       } else if (editId) {
-        updateProfile(editId, {
+        await updateProfile(editId, {
           kind: inferredKind,
           name: trimmedName,
           wearerType,
@@ -276,7 +276,7 @@ export function ModelProfileEditor({
       revokeLocalReferencePreviews(faceReferences);
       onOpenChange(false);
     } catch {
-      toast.error("Face references could not be uploaded.");
+      toast.error("Model profile could not be saved.");
     } finally {
       setSaving(false);
     }

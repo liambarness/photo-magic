@@ -7,6 +7,7 @@ import { cleanFolder, cleanPathSegment, isRecord, readImageOptions } from "@/lib
 import { list } from "@vercel/blob";
 import { getModelProfiles } from "@/lib/server-store";
 import {
+  STARTER_MODEL_PROFILES,
   getModelProfile,
   humanProfileHasFaceReferences,
   poseUsesVisibleFace,
@@ -83,6 +84,13 @@ export async function POST(request: Request) {
     const modelPoseType = requestModelPoseType ?? historyItem?.usedSettings.modelPoseType;
     const faceReferences = await resolveHumanFaceReferences(modelProfileId, modelPoseType);
 
+    if (faceReferences.status === "missing-profile") {
+      return NextResponse.json(
+        { error: "Selected model profile was not found. Save the model profile again before generating." },
+        { status: 400 }
+      );
+    }
+
     if (faceReferences.status === "missing-required") {
       return NextResponse.json(
         { error: "This human model profile needs 1-4 face reference images before generating a face-visible model shot." },
@@ -104,6 +112,7 @@ export async function POST(request: Request) {
       size: imageSize as "1024x1024" | "1536x1024" | "1024x1536",
       quality: quality as "low" | "medium" | "high" | "auto",
       output_format: format as "png" | "jpeg" | "webp",
+      ...(faceReferences.files.length > 0 ? { input_fidelity: "high" as const } : {}),
     };
     // The SDK accepts a single File or an array, matching the Images edit API's image[] form field.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -198,14 +207,18 @@ async function resolveHumanFaceReferences(
 ): Promise<
   | { status: "none"; files: File[] }
   | { status: "ready"; files: File[] }
+  | { status: "missing-profile"; files: File[] }
   | { status: "missing-required"; files: File[] }
 > {
   if (!modelProfileId || !poseUsesVisibleFace(modelPoseType)) {
     return { status: "none", files: [] };
   }
 
-  const profiles = await getModelProfiles();
+  const profiles = [...STARTER_MODEL_PROFILES, ...(await getModelProfiles())];
   const profile = getModelProfile(modelProfileId, profiles);
+  if (!profile) {
+    return { status: "missing-profile", files: [] };
+  }
   if (profile?.kind !== "human") {
     return { status: "none", files: [] };
   }

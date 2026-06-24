@@ -11,9 +11,9 @@ interface ModelProfileState {
 
   load: () => Promise<void>;
   allProfiles: () => ModelProfile[];
-  addProfile: (profile: ModelProfile) => void;
-  updateProfile: (id: string, patch: Partial<Omit<ModelProfile, "id" | "createdAt">>) => void;
-  deleteProfile: (id: string) => void;
+  addProfile: (profile: ModelProfile) => Promise<void>;
+  updateProfile: (id: string, patch: Partial<Omit<ModelProfile, "id" | "createdAt">>) => Promise<void>;
+  deleteProfile: (id: string) => Promise<void>;
   getProfile: (id: string) => ModelProfile | undefined;
 }
 
@@ -58,6 +58,7 @@ export const useModelProfileStore = create<ModelProfileState>((set, get) => ({
     } catch {
       set({ profiles: previous });
       toast.error("Model profile could not be saved.");
+      throw new Error("Model profile could not be saved.");
     }
   },
 
@@ -81,6 +82,7 @@ export const useModelProfileStore = create<ModelProfileState>((set, get) => ({
     } catch {
       set({ profiles: previous });
       toast.error("Model profile could not be updated.");
+      throw new Error("Model profile could not be updated.");
     }
   },
 
@@ -106,6 +108,7 @@ export const useModelProfileStore = create<ModelProfileState>((set, get) => ({
     } catch {
       set({ profiles: previous });
       toast.error("Model profile could not be deleted.");
+      throw new Error("Model profile could not be deleted.");
     }
   },
 
