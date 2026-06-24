@@ -25,7 +25,7 @@ const INPUT_IMAGE_RATE = 8.0 / 1_000_000;
 const INPUT_TEXT_RATE = 5.0 / 1_000_000;
 const OUTPUT_IMAGE_RATE = 30.0 / 1_000_000;
 const HUMAN_FACE_REPLACEMENT_INSTRUCTION =
-  "Human face reference workflow: input image 1 is the product/source image. The additional attached images are face references for the selected human model. If input image 1 already contains a different visible person or face, replace that person's facial identity with the selected human model's face from the references. Preserve the garment/product, pose, body framing, product fit, logo placement, artwork, colors, and camera angle from input image 1. Do not preserve the source person's original face. Do not copy clothing, background, pose, lighting, or camera angle from the face reference images.";
+  "Human face reference workflow: input image 1 is the product/source image. The additional attached images are face references for the selected human model. If input image 1 already contains a different visible person or face, replace that person's facial identity with the selected human model's face from the references. Preserve the garment/product, pose, body framing, visible body extent, subject scale, canvas composition, product fit, logo placement, artwork, colors, camera angle, and background from input image 1. Preserve the source crop exactly: do not zoom out, reframe, convert an upper-body crop into a full-body shot, or add legs, feet, shoes, hands, or body areas that are not visible in input image 1. Do not preserve the source person's original face. Do not copy clothing, background, pose, lighting, or camera angle from the face reference images.";
 
 function estimateCost(usage: Record<string, unknown> | undefined | null): number {
   if (!usage) return 0;
