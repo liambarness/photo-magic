@@ -58,9 +58,8 @@ function generationDebugSummary(photo: SourcePhoto): string | null {
 
   const refs = debug.faceReferenceCount > 0 ? `refs ${debug.faceReferenceCount}` : "refs 0";
   const inputs = `inputs ${debug.inputImageCount}`;
-  const fidelity = debug.inputFidelity ? `fidelity ${debug.inputFidelity}` : "fidelity auto";
 
-  return `${kind} - ${refs} - ${inputs} - ${fidelity}`;
+  return `${kind} - ${refs} - ${inputs}`;
 }
 
 export function ImageResultCard({

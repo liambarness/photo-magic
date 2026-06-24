@@ -106,7 +106,6 @@ export async function POST(request: Request) {
       modelPoseType,
       faceReferenceCount: faceReferences.files.length,
       inputImageCount: inputImages.length,
-      inputFidelity: faceReferences.files.length > 0 ? "high" : undefined,
     };
 
     const format = outputFormat;
@@ -121,7 +120,6 @@ export async function POST(request: Request) {
       size: imageSize as "1024x1024" | "1536x1024" | "1024x1536",
       quality: quality as "low" | "medium" | "high" | "auto",
       output_format: format as "png" | "jpeg" | "webp",
-      ...(faceReferences.files.length > 0 ? { input_fidelity: "high" as const } : {}),
     };
     // The SDK accepts a single File or an array, matching the Images edit API's image[] form field.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

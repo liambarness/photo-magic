@@ -11,7 +11,6 @@ export interface GenerationDebug {
   modelPoseType?: ModelPoseType;
   faceReferenceCount: number;
   inputImageCount: number;
-  inputFidelity?: "high" | "low";
 }
 
 export type ShotMode = "product" | "model" | "touchup";
