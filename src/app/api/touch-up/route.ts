@@ -24,6 +24,8 @@ const MIME: Record<string, string> = {
 const INPUT_IMAGE_RATE = 8.0 / 1_000_000;
 const INPUT_TEXT_RATE = 5.0 / 1_000_000;
 const OUTPUT_IMAGE_RATE = 30.0 / 1_000_000;
+const HUMAN_FACE_REPLACEMENT_INSTRUCTION =
+  "Human face reference workflow: input image 1 is the product/source image. The additional attached images are face references for the selected human model. If input image 1 already contains a different visible person or face, replace that person's facial identity with the selected human model's face from the references. Preserve the garment/product, pose, body framing, product fit, logo placement, artwork, colors, and camera angle from input image 1. Do not preserve the source person's original face. Do not copy clothing, background, pose, lighting, or camera angle from the face reference images.";
 
 function estimateCost(usage: Record<string, unknown> | undefined | null): number {
   if (!usage) return 0;
@@ -99,6 +101,10 @@ export async function POST(request: Request) {
     }
 
     inputImages.push(...faceReferences.files);
+    const effectivePrompt =
+      faceReferences.files.length > 0
+        ? `${prompt} ${HUMAN_FACE_REPLACEMENT_INSTRUCTION}`
+        : prompt;
     const generationDebug: GenerationDebug = {
       modelProfileId: modelProfileId || undefined,
       modelProfileName: faceReferences.modelProfileName,
@@ -115,7 +121,7 @@ export async function POST(request: Request) {
     const editParams = {
       model: "gpt-image-2",
       image: inputImages.length === 1 ? inputImages[0] : inputImages,
-      prompt,
+      prompt: effectivePrompt,
       n: 1,
       size: imageSize as "1024x1024" | "1536x1024" | "1024x1536",
       quality: quality as "low" | "medium" | "high" | "auto",
