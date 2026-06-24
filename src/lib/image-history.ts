@@ -1,4 +1,4 @@
-import type { PhotoSettings, SourcePhoto, TokenUsage } from "@/types";
+import type { GenerationDebug, PhotoSettings, SourcePhoto, TokenUsage } from "@/types";
 import { blobServingUrl, blobStorageUrl, deleteBlobs, putBlob, readBlobJson } from "@/lib/blob-utils";
 import { list } from "@vercel/blob";
 
@@ -20,6 +20,7 @@ export interface ImageHistoryItem {
   visibility: SourcePhoto["visibility"];
   cost: number;
   usage: TokenUsage | null;
+  generationDebug?: GenerationDebug | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -106,6 +107,7 @@ export async function completeImageHistoryItem(input: {
   resultUrl: string;
   cost: number;
   usage: TokenUsage | null;
+  generationDebug?: GenerationDebug | null;
   label?: string;
   batchFolder?: string;
 }): Promise<void> {
@@ -120,6 +122,7 @@ export async function completeImageHistoryItem(input: {
       error: null,
       cost: item.cost + input.cost,
       usage: input.usage,
+      generationDebug: input.generationDebug ?? item.generationDebug ?? null,
       label: input.label ?? item.label,
       batchFolder: input.batchFolder ?? item.batchFolder,
       updatedAt: Date.now(),
@@ -268,6 +271,7 @@ export async function upsertSourceImage(input: {
         visibility: "active",
         cost: 0,
         usage: null,
+        generationDebug: null,
         createdAt: now,
         updatedAt: now,
       });
@@ -303,6 +307,7 @@ export async function mergeSourcePhotos(photos: SourcePhoto[]): Promise<void> {
           visibility: photo.visibility ?? existing.visibility ?? "active",
           cost: photo.cost,
           usage: photo.usage,
+          generationDebug: photo.generationDebug ?? existing.generationDebug ?? null,
           updatedAt: now,
         });
       } else {
@@ -319,6 +324,7 @@ export async function mergeSourcePhotos(photos: SourcePhoto[]): Promise<void> {
           visibility: photo.visibility ?? "active",
           cost: photo.cost,
           usage: photo.usage,
+          generationDebug: photo.generationDebug ?? null,
           createdAt: photo.createdAt ?? now,
           updatedAt: now,
         });
@@ -417,6 +423,7 @@ export function historyItemToSourcePhoto(item: ImageHistoryItem): SourcePhoto {
     visibility: item.visibility ?? "active",
     cost: item.cost,
     usage: item.usage,
+    generationDebug: item.generationDebug ?? null,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };

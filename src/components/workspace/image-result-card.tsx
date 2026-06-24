@@ -43,6 +43,26 @@ function workflowSummary(photo: SourcePhoto): string | null {
   return null;
 }
 
+function generationDebugSummary(photo: SourcePhoto): string | null {
+  const debug = photo.generationDebug;
+  if (!debug) return null;
+
+  const kind =
+    debug.modelProfileKind === "human"
+      ? "Human"
+      : debug.modelProfileKind === "ai"
+        ? "AI"
+        : debug.modelProfileKind === "missing"
+          ? "Missing profile"
+          : "No profile";
+
+  const refs = debug.faceReferenceCount > 0 ? `refs ${debug.faceReferenceCount}` : "refs 0";
+  const inputs = `inputs ${debug.inputImageCount}`;
+  const fidelity = debug.inputFidelity ? `fidelity ${debug.inputFidelity}` : "fidelity auto";
+
+  return `${kind} - ${refs} - ${inputs} - ${fidelity}`;
+}
+
 export function ImageResultCard({
   photo,
   selected,
@@ -60,6 +80,7 @@ export function ImageResultCard({
   const isArchived = photo.visibility === "archived";
   const pendingLabel = photo.serverPath ? "Queued" : "Uploading and labeling...";
   const workflowLabel = workflowSummary(photo);
+  const generationDebugLabel = generationDebugSummary(photo);
   const [feedback, setFeedback] = useState("");
 
   const handleRegenerate = (e: React.FormEvent) => {
@@ -210,6 +231,11 @@ export function ImageResultCard({
             {workflowLabel && (
               <p className="truncate text-[10px] text-muted-foreground/60">
                 {workflowLabel}
+              </p>
+            )}
+            {generationDebugLabel && (
+              <p className="truncate text-[10px] text-muted-foreground/60" title={generationDebugLabel}>
+                {generationDebugLabel}
               </p>
             )}
           </div>

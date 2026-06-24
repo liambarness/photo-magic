@@ -13,7 +13,7 @@ import {
   poseUsesVisibleFace,
   type ModelFaceReference,
 } from "@/lib/model-shot";
-import type { ModelPoseType } from "@/types";
+import type { GenerationDebug, ModelPoseType } from "@/types";
 
 const MIME: Record<string, string> = {
   png: "image/png",
@@ -99,6 +99,15 @@ export async function POST(request: Request) {
     }
 
     inputImages.push(...faceReferences.files);
+    const generationDebug: GenerationDebug = {
+      modelProfileId: modelProfileId || undefined,
+      modelProfileName: faceReferences.modelProfileName,
+      modelProfileKind: faceReferences.modelProfileKind,
+      modelPoseType,
+      faceReferenceCount: faceReferences.files.length,
+      inputImageCount: inputImages.length,
+      inputFidelity: faceReferences.files.length > 0 ? "high" : undefined,
+    };
 
     const format = outputFormat;
     const quality = imageQuality;
@@ -143,6 +152,7 @@ export async function POST(request: Request) {
       resultUrl,
       cost,
       usage: tokenUsage,
+      generationDebug,
       label: label || undefined,
       batchFolder: folder,
     });
@@ -151,6 +161,7 @@ export async function POST(request: Request) {
       resultUrl: `${blobServingUrl(resultUrl)}&t=${Date.now()}`,
       usage: tokenUsage,
       cost,
+      generationDebug,
     });
   } catch (err) {
     console.error("Touch-up error:", err);
@@ -205,25 +216,26 @@ async function resolveHumanFaceReferences(
   modelProfileId: string,
   modelPoseType: ModelPoseType | undefined
 ): Promise<
-  | { status: "none"; files: File[] }
-  | { status: "ready"; files: File[] }
-  | { status: "missing-profile"; files: File[] }
-  | { status: "missing-required"; files: File[] }
+  | { status: "none"; files: File[]; modelProfileKind: "none"; modelProfileName?: string }
+  | { status: "ready"; files: File[]; modelProfileKind: "human"; modelProfileName: string }
+  | { status: "missing-profile"; files: File[]; modelProfileKind: "missing"; modelProfileName?: string }
+  | { status: "missing-required"; files: File[]; modelProfileKind: "human"; modelProfileName: string }
+  | { status: "none"; files: File[]; modelProfileKind: "ai"; modelProfileName: string }
 > {
   if (!modelProfileId || !poseUsesVisibleFace(modelPoseType)) {
-    return { status: "none", files: [] };
+    return { status: "none", files: [], modelProfileKind: "none" };
   }
 
   const profiles = [...STARTER_MODEL_PROFILES, ...(await getModelProfiles())];
   const profile = getModelProfile(modelProfileId, profiles);
   if (!profile) {
-    return { status: "missing-profile", files: [] };
+    return { status: "missing-profile", files: [], modelProfileKind: "missing" };
   }
   if (profile?.kind !== "human") {
-    return { status: "none", files: [] };
+    return { status: "none", files: [], modelProfileKind: "ai", modelProfileName: profile.name };
   }
   if (!humanProfileHasFaceReferences(profile)) {
-    return { status: "missing-required", files: [] };
+    return { status: "missing-required", files: [], modelProfileKind: "human", modelProfileName: profile.name };
   }
 
   const files = await Promise.all(
@@ -234,8 +246,8 @@ async function resolveHumanFaceReferences(
 
   const readable = files.filter((file): file is File => Boolean(file));
   return readable.length > 0
-    ? { status: "ready", files: readable }
-    : { status: "missing-required", files: [] };
+    ? { status: "ready", files: readable, modelProfileKind: "human", modelProfileName: profile.name }
+    : { status: "missing-required", files: [], modelProfileKind: "human", modelProfileName: profile.name };
 }
 
 async function referenceToFile(reference: ModelFaceReference, index: number): Promise<File | null> {

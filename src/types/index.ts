@@ -4,6 +4,16 @@ export interface TokenUsage {
   totalTokens: number;
 }
 
+export interface GenerationDebug {
+  modelProfileId?: string;
+  modelProfileName?: string;
+  modelProfileKind?: "ai" | "human" | "missing" | "none";
+  modelPoseType?: ModelPoseType;
+  faceReferenceCount: number;
+  inputImageCount: number;
+  inputFidelity?: "high" | "low";
+}
+
 export type ShotMode = "product" | "model" | "touchup";
 export type ModelWearerType = "mens" | "womens" | "youth" | "toddler";
 export type ModelPoseType =
@@ -77,6 +87,7 @@ export interface SourcePhoto {
   visibility: "active" | "archived";
   cost: number;
   usage: TokenUsage | null;
+  generationDebug?: GenerationDebug | null;
   createdAt?: number;
   updatedAt?: number;
 }

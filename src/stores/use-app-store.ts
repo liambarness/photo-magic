@@ -5,6 +5,7 @@ import type {
   SourcePhoto,
   ActivePresetConfig,
   PhotoSettings,
+  GenerationDebug,
   TokenUsage,
   BackgroundMode,
   ModelPoseType,
@@ -68,7 +69,8 @@ interface AppState {
     resultUrl?: string | null,
     error?: string | null,
     cost?: number,
-    usage?: TokenUsage | null
+    usage?: TokenUsage | null,
+    generationDebug?: GenerationDebug | null
   ) => void;
   resetSinglePhoto: (photoId: string) => void;
   setPhotoVisibility: (photoIds: string[], visibility: SourcePhoto["visibility"]) => void;
@@ -315,7 +317,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
-  setPhotoStatus: (photoId, status, resultUrl, error, cost, usage) => {
+  setPhotoStatus: (photoId, status, resultUrl, error, cost, usage, generationDebug) => {
     set((s) => ({
       photos: s.photos.map((p) =>
         p.id === photoId
@@ -326,6 +328,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               error: error ?? null,
               cost: p.cost + (cost ?? 0),
               usage: usage ?? p.usage,
+              generationDebug: generationDebug ?? p.generationDebug ?? null,
               updatedAt: Date.now(),
             }
           : p
@@ -337,7 +340,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({
       photos: s.photos.map((p) =>
         p.id === photoId
-          ? { ...p, status: "pending" as const, resultUrl: null, error: null, updatedAt: Date.now() }
+          ? { ...p, status: "pending" as const, resultUrl: null, error: null, generationDebug: null, updatedAt: Date.now() }
           : p
       ),
     }));
