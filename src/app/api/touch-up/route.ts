@@ -91,6 +91,9 @@ export async function POST(request: Request) {
     }
 
     inputImages.push(...faceReferences.files);
+    const generationPrompt = faceReferences.files.length > 0
+      ? `${prompt}\n\n${faceReferenceGuidance(faceReferences.files.length)}`
+      : prompt;
 
     const format = outputFormat;
     const quality = imageQuality;
@@ -99,7 +102,7 @@ export async function POST(request: Request) {
     const editParams = {
       model: "gpt-image-2",
       image: inputImages.length === 1 ? inputImages[0] : inputImages,
-      prompt,
+      prompt: generationPrompt,
       n: 1,
       size: imageSize as "1024x1024" | "1536x1024" | "1024x1536",
       quality: quality as "low" | "medium" | "high" | "auto",
@@ -213,8 +216,9 @@ async function resolveHumanFaceReferences(
     return { status: "missing-required", files: [] };
   }
 
+  const references = shuffle((profile.faceReferences ?? []).slice(0, 4));
   const files = await Promise.all(
-    (profile.faceReferences ?? []).slice(0, 4).map((reference, index) =>
+    references.map((reference, index) =>
       referenceToFile(reference, index)
     )
   );
@@ -223,6 +227,22 @@ async function resolveHumanFaceReferences(
   return readable.length > 0
     ? { status: "ready", files: readable }
     : { status: "missing-required", files: [] };
+}
+
+function shuffle<T>(items: readonly T[]): T[] {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function faceReferenceGuidance(referenceCount: number): string {
+  const lastImageIndex = referenceCount + 1;
+  const referenceRange = lastImageIndex === 2 ? "Image 2" : `Images 2-${lastImageIndex}`;
+
+  return `${referenceRange} show the same person and collectively define the model's facial identity. Do not treat the earliest face reference as dominant. Preserve the same person's likeness while creating a fresh, natural expression and head position appropriate for this shot. Image 1 remains the authoritative source for the product. Do not copy clothing, background, lighting, pose, camera angle, or composition from the face references.`;
 }
 
 async function referenceToFile(reference: ModelFaceReference, index: number): Promise<File | null> {
