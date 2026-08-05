@@ -122,7 +122,7 @@ export function buildFinalPrompt(
         if (usesVisibleFace) {
           if (humanProfileHasFaceReferences(modelProfile)) {
             parts.push(
-              "Use the attached face reference images as the authoritative source for the model's facial identity, facial features, skin tone, and natural expression. Use the uploaded product/source image as the authoritative source for the garment/product. Do not copy clothing, background, pose, lighting, or camera angle from the face reference images."
+              "Use the attached face reference images collectively as the authoritative source for the model's facial identity, facial features, and skin tone. Use the uploaded product/source image as the authoritative source for the garment/product. Do not copy expression, head position, clothing, background, pose, lighting, or camera angle from the face reference images."
             );
           } else {
             parts.push(
