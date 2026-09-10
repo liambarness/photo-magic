@@ -11,9 +11,9 @@ interface ModelProfileState {
 
   load: () => Promise<void>;
   allProfiles: () => ModelProfile[];
-  addProfile: (profile: ModelProfile) => Promise<boolean>;
-  updateProfile: (id: string, patch: Partial<Omit<ModelProfile, "id" | "createdAt">>) => Promise<boolean>;
-  deleteProfile: (id: string) => Promise<boolean>;
+  addProfile: (profile: ModelProfile) => void;
+  updateProfile: (id: string, patch: Partial<Omit<ModelProfile, "id" | "createdAt">>) => void;
+  deleteProfile: (id: string) => void;
   getProfile: (id: string) => ModelProfile | undefined;
 }
 
@@ -36,8 +36,7 @@ export const useModelProfileStore = create<ModelProfileState>((set, get) => ({
       if (!Array.isArray(profiles)) throw new Error("Invalid model profiles response");
       set({ profiles: withStarters(profiles), _loaded: true });
     } catch {
-      set({ _loaded: true });
-      toast.error("Model profiles could not be loaded. Please reload before editing.");
+      set({ profiles: withStarters([]), _loaded: true });
     }
   },
 
@@ -56,11 +55,9 @@ export const useModelProfileStore = create<ModelProfileState>((set, get) => ({
       const profiles = await res.json();
       if (!Array.isArray(profiles)) throw new Error("Invalid response");
       set({ profiles: withStarters(profiles) });
-      return true;
     } catch {
       set({ profiles: previous });
       toast.error("Model profile could not be saved.");
-      return false;
     }
   },
 
@@ -81,11 +78,9 @@ export const useModelProfileStore = create<ModelProfileState>((set, get) => ({
       const profiles = await res.json();
       if (!Array.isArray(profiles)) throw new Error("Invalid response");
       set({ profiles: withStarters(profiles) });
-      return true;
     } catch {
       set({ profiles: previous });
       toast.error("Model profile could not be updated.");
-      return false;
     }
   },
 
@@ -93,7 +88,7 @@ export const useModelProfileStore = create<ModelProfileState>((set, get) => ({
     const target = get().profiles.find((p) => p.id === id);
     if (target?.system) {
       toast.message("Starter profiles can be customized but not deleted.");
-      return false;
+      return;
     }
 
     const previous = get().profiles;
@@ -108,11 +103,9 @@ export const useModelProfileStore = create<ModelProfileState>((set, get) => ({
       const profiles = await res.json();
       if (!Array.isArray(profiles)) throw new Error("Invalid response");
       set({ profiles: withStarters(profiles) });
-      return true;
     } catch {
       set({ profiles: previous });
       toast.error("Model profile could not be deleted.");
-      return false;
     }
   },
 

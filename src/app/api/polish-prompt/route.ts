@@ -10,7 +10,7 @@ Rules:
 - For "product" shot mode: describe a product-only studio shot, no model or person
 - For "model" shot mode: describe a model wearing or holding the product in a studio setting
 - For "touchup" shot mode: describe cleaning up an existing rough model/product source photo while preserving the same person, pose, product fit, artwork, logo placement, colors, and composition
-- For model shots, DO NOT specify crop, framing, face visibility, body area, gender, body type, age group, model identity, facial expression, gaze, or head position; those are runtime settings
+- For model shots, DO NOT specify crop, framing, face visibility, body area, gender, body type, age group, or model identity; those are runtime settings
 - For touch-up shots, NEVER ask to create or replace the model/person; the uploaded source already contains the model/person
 - Do NOT specify model gender or body type - those are set at runtime per batch
 - Do NOT specify background, studio setup, lighting, or brand rules; those are runtime/global settings
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
       `Product type: "${presetName}"`,
       `Shot mode: ${shotMode}`,
     ];
-    if (framing && shotMode !== "model") lines.push(`Framing: ${framing}`);
+    if (framing) lines.push(`Framing: ${framing}`);
     if (description) lines.push(`Description: ${description}`);
     lines.push("Background: omitted; handled at runtime");
     lines.push("Brand rules: omitted; handled at runtime");

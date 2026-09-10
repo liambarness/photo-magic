@@ -8,18 +8,14 @@ import { list } from "@vercel/blob";
 import { getModelProfiles } from "@/lib/server-store";
 import {
   getModelProfile,
-  STARTER_MODEL_PROFILES,
   humanProfileHasFaceReferences,
-  getModelShotContext,
-  modelShotContextGuidance,
+  poseUsesVisibleFace,
   type ModelFaceReference,
 } from "@/lib/model-shot";
-import { selectModelVariation, modelVariationGuidance, type ModelGeneration } from "@/lib/model-expression";
 import type { ModelPoseType } from "@/types";
 
 const MIME: Record<string, string> = {
   png: "image/png",
-  jpg: "image/jpeg",
   jpeg: "image/jpeg",
   webp: "image/webp",
 };
@@ -50,17 +46,13 @@ export async function POST(request: Request) {
     const folder = cleanFolder(body.folder);
     const photoId = typeof body.photoId === "string" ? body.photoId : "";
     const label = cleanPathSegment(body.label, "");
-    const prompt = typeof body.prompt === "string" ? body.prompt : "";
+    const prompt = typeof body.prompt === "string" ? body.prompt.slice(0, 8000) : "";
     const requestModelProfileId = typeof body.modelProfileId === "string" ? body.modelProfileId : "";
     const requestModelPoseType = cleanModelPoseType(body.modelPoseType);
     const { imageSize, imageQuality, outputFormat } = readImageOptions(body);
 
     if (!folder || !photoId || !prompt) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
-    }
-
-    if (prompt.length > 8000) {
-      return NextResponse.json({ error: "Prompt exceeds 8000 characters. Shorten the preset or notes so all shot instructions can be preserved." }, { status: 400 });
     }
 
     const subfolder = label ? `${folder}/${label}` : folder;
@@ -87,33 +79,21 @@ export async function POST(request: Request) {
     });
     const inputImages: File[] = [imageFile];
     const historyItem = await getImageHistoryItem(photoId);
-    const shotMode = body.shotMode ?? historyItem?.usedSettings.shotMode;
-    const modelProfileId = shotMode === "model"
-      ? (requestModelProfileId || historyItem?.usedSettings.modelProfileId || "") : "";
-    if (shotMode === "model" && !modelProfileId) {
-      return NextResponse.json({ error: "Select a model profile before generating." }, { status: 400 });
-    }
-    const modelPoseType = requestModelPoseType ?? historyItem?.usedSettings.modelPoseType ?? "upper_face_visible";
-    const viewType = typeof body.viewType === "string" ? body.viewType : historyItem?.usedSettings.viewType;
-    const faceReferences = await resolveHumanFaceReferences(modelProfileId, modelPoseType, viewType, historyItem?.lastModelGeneration);
+    const modelProfileId = requestModelProfileId || historyItem?.usedSettings.modelProfileId || "";
+    const modelPoseType = requestModelPoseType ?? historyItem?.usedSettings.modelPoseType;
+    const faceReferences = await resolveHumanFaceReferences(modelProfileId, modelPoseType);
 
-    if (faceReferences.status === "missing-profile") {
-      return NextResponse.json({ error: "The selected model no longer exists. Select another model." }, { status: 400 });
-    }
     if (faceReferences.status === "missing-required") {
       return NextResponse.json(
-        { error: "This human model profile needs 1-12 readable face reference images before generating a face-visible model shot." },
+        { error: "This human model profile needs 1-4 face reference images before generating a face-visible model shot." },
         { status: 400 }
       );
     }
 
     inputImages.push(...faceReferences.files);
-    const generationPrompt = [
-      prompt,
-      faceReferences.generation ? modelVariationGuidance(faceReferences.generation, modelPoseType, viewType) : "",
-      // Repeat the resolved constraints last so saved legacy prompts cannot control crop/view.
-      shotMode === "model" ? modelShotContextGuidance(modelPoseType, viewType) : "",
-    ].filter(Boolean).join("\n\n");
+    const generationPrompt = faceReferences.files.length > 0
+      ? `${prompt}\n\n${faceReferenceGuidance(faceReferences.files.length)}`
+      : prompt;
 
     const format = outputFormat;
     const quality = imageQuality;
@@ -159,7 +139,6 @@ export async function POST(request: Request) {
       usage: tokenUsage,
       label: label || undefined,
       batchFolder: folder,
-      lastModelGeneration: faceReferences.generation,
     });
 
     return NextResponse.json({
@@ -218,44 +197,52 @@ function cleanModelPoseType(value: unknown): ModelPoseType | undefined {
 
 async function resolveHumanFaceReferences(
   modelProfileId: string,
-  modelPoseType: ModelPoseType | undefined,
-  viewType: string | undefined,
-  previous?: ModelGeneration,
-): Promise<{
-  status: "none" | "ready" | "missing-required" | "missing-profile";
-  files: File[];
-  generation?: ModelGeneration;
-}> {
-  if (!modelProfileId) return { status: "none", files: [] };
-  const profiles = await getModelProfiles();
-  const profile = getModelProfile(modelProfileId, profiles) ?? getModelProfile(modelProfileId, STARTER_MODEL_PROFILES);
-  if (!profile) return { status: "missing-profile", files: [] };
-  if (!getModelShotContext(modelPoseType, viewType).usesFace) return { status: "none", files: [] };
-  if (profile.kind !== "human") {
-    return { status: "ready", files: [], generation: selectModelVariation(profile, [], previous).generation };
+  modelPoseType: ModelPoseType | undefined
+): Promise<
+  | { status: "none"; files: File[] }
+  | { status: "ready"; files: File[] }
+  | { status: "missing-required"; files: File[] }
+> {
+  if (!modelProfileId || !poseUsesVisibleFace(modelPoseType)) {
+    return { status: "none", files: [] };
   }
-  if (!humanProfileHasFaceReferences(profile)) return { status: "missing-required", files: [] };
 
-  // Try only selected references first. Replace unreadable files before choosing again.
-  let available = [...(profile.faceReferences ?? [])];
-  const loaded = new Map<string, File>();
-  while (available.length) {
-    const variation = selectModelVariation(profile, available, previous);
-    const missing = new Set<string>();
-    await Promise.all(variation.references.map(async (reference, index) => {
-      if (loaded.has(reference.id)) return;
-      const file = await referenceToFile(reference, index);
-      if (file) loaded.set(reference.id, file);
-      else missing.add(reference.id);
-    }));
-    if (!missing.size) return {
-      status: "ready",
-      files: variation.references.map((r) => loaded.get(r.id)!),
-      generation: variation.generation,
-    };
-    available = available.filter((r) => !missing.has(r.id));
+  const profiles = await getModelProfiles();
+  const profile = getModelProfile(modelProfileId, profiles);
+  if (profile?.kind !== "human") {
+    return { status: "none", files: [] };
   }
-  return { status: "missing-required", files: [] };
+  if (!humanProfileHasFaceReferences(profile)) {
+    return { status: "missing-required", files: [] };
+  }
+
+  const references = shuffle((profile.faceReferences ?? []).slice(0, 4));
+  const files = await Promise.all(
+    references.map((reference, index) =>
+      referenceToFile(reference, index)
+    )
+  );
+
+  const readable = files.filter((file): file is File => Boolean(file));
+  return readable.length > 0
+    ? { status: "ready", files: readable }
+    : { status: "missing-required", files: [] };
+}
+
+function shuffle<T>(items: readonly T[]): T[] {
+  const shuffled = [...items];
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function faceReferenceGuidance(referenceCount: number): string {
+  const lastImageIndex = referenceCount + 1;
+  const referenceRange = lastImageIndex === 2 ? "Image 2" : `Images 2-${lastImageIndex}`;
+
+  return `${referenceRange} show the same person and collectively define the model's facial identity. Do not treat the earliest face reference as dominant. Preserve the same person's likeness while creating a fresh, natural expression and head position appropriate for this shot. Image 1 remains the authoritative source for the product. Do not copy clothing, background, lighting, pose, camera angle, or composition from the face references.`;
 }
 
 async function referenceToFile(reference: ModelFaceReference, index: number): Promise<File | null> {

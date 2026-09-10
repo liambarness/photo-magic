@@ -209,7 +209,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           activePreset: {
             ...s.activePreset,
             modelWearerType: wearerType,
-            modelProfileId: normalizeModelProfileSelection(s.activePreset.modelProfileId, wearerType, useModelProfileStore.getState().profiles),
+            modelProfileId: normalizeModelProfileSelection(s.activePreset.modelProfileId, wearerType),
           },
         };
       }

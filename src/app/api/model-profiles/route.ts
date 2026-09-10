@@ -7,16 +7,12 @@ import {
 } from "@/lib/server-store";
 import { cleanText, isRecord } from "@/lib/validation";
 import type { ModelWearerType } from "@/types";
-import { MAX_FACE_REFERENCES, type ModelFaceReference, type ModelProfileKind } from "@/lib/model-shot";
+import type { ModelFaceReference, ModelProfileKind } from "@/lib/model-shot";
 
 function cleanWearerType(value: unknown): ModelWearerType {
   return value === "womens" || value === "youth" || value === "toddler"
     ? value
     : "mens";
-}
-
-function cleanExpressionMode(value: unknown): "reference" | "varied" | "neutral" {
-  return value === "varied" || value === "neutral" ? value : "reference";
 }
 
 function cleanProfileKind(value: unknown): ModelProfileKind {
@@ -45,7 +41,7 @@ function sanitizeFaceReferences(raw: unknown): ModelFaceReference[] {
       size,
       createdAt,
     }];
-  }).slice(0, MAX_FACE_REFERENCES);
+  }).slice(0, 4);
 }
 
 function sanitizeModelProfile(raw: unknown) {
@@ -59,7 +55,6 @@ function sanitizeModelProfile(raw: unknown) {
   return {
     id: cleanText(raw.id, 80) || crypto.randomUUID(),
     kind,
-    expressionMode: cleanExpressionMode(raw.expressionMode),
     name,
     wearerType: cleanWearerType(raw.wearerType),
     prompt: cleanText(raw.prompt, 2000),
@@ -98,16 +93,13 @@ export async function PATCH(request: Request) {
 
   const patch: Record<string, unknown> = {};
   if (typeof body.name === "string") patch.name = cleanText(body.name, 120);
-  if (typeof body.expressionMode === "string") patch.expressionMode = cleanExpressionMode(body.expressionMode);
   if (typeof body.kind === "string") patch.kind = cleanProfileKind(body.kind);
   if (typeof body.wearerType === "string") patch.wearerType = cleanWearerType(body.wearerType);
   if (typeof body.prompt === "string") patch.prompt = cleanText(body.prompt, 2000);
   if (typeof body.styling === "string") patch.styling = cleanText(body.styling, 2000);
   if (Array.isArray(body.faceReferences)) patch.faceReferences = sanitizeFaceReferences(body.faceReferences);
 
-  if (patch.name === "") return NextResponse.json({ error: "Give the model a name" }, { status: 400 });
   const profiles = await updateModelProfile(id, patch);
-  if (!profiles) return NextResponse.json({ error: "Model profile not found" }, { status: 404 });
   return NextResponse.json(profiles);
 }
 

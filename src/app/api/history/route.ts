@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  clearImageHistory,
   deleteImageHistoryItems,
   getImageHistory,
   historyItemToSourcePhoto,
@@ -44,5 +45,6 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ ok: true, deleted });
   }
 
-  return NextResponse.json({ error: "Provide image ids to delete" }, { status: 400 });
+  await clearImageHistory();
+  return NextResponse.json({ ok: true });
 }
