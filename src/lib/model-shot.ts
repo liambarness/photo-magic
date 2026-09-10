@@ -20,8 +20,6 @@ export interface ModelPoseOption {
 }
 
 export type ModelProfileKind = "ai" | "human";
-export const MAX_FACE_REFERENCES = 12;
-export type ModelExpressionMode = "reference" | "varied" | "neutral";
 
 export interface ModelFaceReference {
   id: string;
@@ -40,7 +38,6 @@ export interface ModelProfile {
   prompt: string;
   styling: string;
   faceReferences?: ModelFaceReference[];
-  expressionMode?: ModelExpressionMode;
   system?: boolean;
   createdAt?: number;
   updatedAt?: number;
@@ -93,7 +90,7 @@ export const MODEL_POSE_OPTIONS: ModelPoseOption[] = [
     label: "Upper body - no face",
     shortLabel: "Upper no face",
     prompt:
-      "Crop from the neck down with no face visible, showing torso, fit, logo placement, and product drape.",
+      "Crop from the neck or lower face down so no full face is visible, showing torso, fit, logo placement, and product drape.",
   },
   {
     value: "lower_no_face",
@@ -169,9 +166,7 @@ export function normalizeModelProfile(profile: ModelProfile): ModelProfile {
   return {
     ...profile,
     kind,
-    faceReferences: kind === "human" ? faceReferences.slice(0, MAX_FACE_REFERENCES) : undefined,
-    expressionMode: profile.expressionMode === "neutral" || profile.expressionMode === "varied"
-      ? profile.expressionMode : "reference",
+    faceReferences: kind === "human" ? faceReferences.slice(0, 4) : undefined,
   };
 }
 
@@ -181,38 +176,6 @@ export function modelProfileKindLabel(profile: ModelProfile | null | undefined):
 
 export function poseUsesVisibleFace(value: ModelPoseType | undefined): boolean {
   return value === "full_body" || value === "upper_face_visible";
-}
-
-// One interpretation of crop + product view for the UI, prompts, and image inputs.
-export function getModelShotContext(poseType: string | undefined, viewType?: string) {
-  const pose = getModelPoseOption(poseType);
-  const view: ModelViewType = viewType === "front" || viewType === "back" ||
-    viewType === "side" || viewType === "detail" ? viewType : "unknown";
-  const usesFace = poseUsesVisibleFace(pose.value) && view !== "back" && view !== "detail";
-  let framing = pose.prompt;
-  if (view === "back" && pose.value === "upper_face_visible") {
-    framing = "Frame the back of the head through the torso, keeping the rear of the product visible. The face must not be visible.";
-  }
-  if (view === "detail") {
-    framing = "Detail view takes precedence over the body framing: crop tightly to the product detail shown in Image 1, preserving its placement on the wearer. Do not include a face or widen the crop to show the model.";
-  }
-  const viewPrompt = view === "back"
-    ? "Show the rear of the product and wearer. Keep the head facing away; do not turn toward the camera to show a face or expression."
-    : view === "side"
-      ? "Keep the wearer and product in side profile. Any visible face must stay in profile; do not rotate toward the camera to match a reference."
-      : view === "front"
-        ? "Show the front of the product with the wearer oriented forward."
-        : view === "unknown"
-          ? "Preserve the product view evidenced by Image 1. If it shows a rear or detail view, do not reveal a face or widen the crop for an expression."
-          : "Preserve the source product detail and its viewing angle.";
-  return { poseType: pose.value, viewType: view, usesFace, framing, viewPrompt };
-}
-
-export function modelShotContextGuidance(poseType: string | undefined, viewType?: string): string {
-  const context = getModelShotContext(poseType, viewType);
-  return `Authoritative framing and view: ${context.framing} ${context.viewPrompt} These structured shot settings override conflicting crop, face visibility, or view wording in presets, profile styling, notes, and regeneration feedback. Styling applies only within the selected crop; do not zoom out to show shoes or accessories. ${context.usesFace
-    ? "Expression is subordinate to product view and framing. Use it only if a face is naturally visible within this composition; never reframe to emphasize the face."
-    : "No facial expression or gaze instruction applies to this shot. Ignore earlier face-reference instructions; no face images are attached."}`;
 }
 
 export function humanProfileHasFaceReferences(profile: ModelProfile | null | undefined): boolean {
@@ -225,7 +188,7 @@ export function modelProfilesForWearer(
 ): ModelProfile[] {
   const profiles = allProfiles ?? STARTER_MODEL_PROFILES;
   const matching = profiles.filter((profile) => profile.wearerType === wearerType);
-  return matching;
+  return matching.length > 0 ? matching : profiles.filter((profile) => profile.wearerType === "mens");
 }
 
 export function normalizeModelProfileSelection(

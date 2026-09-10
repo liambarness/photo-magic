@@ -265,7 +265,7 @@ export function ParameterSidebar() {
                   )}
                   {selectedModelNeedsFaceReferences && (
                     <p className="text-[11px] text-destructive">
-                      Add 1-12 face reference images before generating face-visible shots with this human model.
+                      Add 1-4 face reference images before generating face-visible shots with this human model.
                     </p>
                   )}
                   {selectedModelProfile?.styling && (
