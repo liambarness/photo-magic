@@ -369,7 +369,7 @@ export function ModelProfileEditor({
                   </Tooltip>
                 </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Optional. Face-visible shots use these as identity references.
+                  Optional. All images define the same person. The first supplies hairstyle details not specified in Appearance; expression cues vary slightly. Define pants and outfit colors in Default Styling or notes.
                 </p>
               </div>
               <Badge variant="outline" className="shrink-0">
