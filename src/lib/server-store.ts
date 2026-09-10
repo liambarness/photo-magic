@@ -185,20 +185,11 @@ export async function deletePreset(id: string): Promise<Preset[]> {
   });
 }
 
-let modelProfilesCache: { value: ModelProfile[]; expiresAt: number } | null = null;
-
-function cacheModelProfiles(profiles: ModelProfile[]): ModelProfile[] {
-  modelProfilesCache = { value: profiles, expiresAt: Date.now() + CACHE_TTL_MS };
-  return profiles;
-}
-
 export async function getModelProfiles(): Promise<ModelProfile[]> {
-  if (modelProfilesCache && modelProfilesCache.expiresAt > Date.now()) {
-    return modelProfilesCache.value;
-  }
-
+  // Save and generation can run on separate server instances. Always read the
+  // current profile list so successful saves are visible to the next request.
   const profiles = await readBlobJson<ModelProfile[]>(MODEL_PROFILES_KEY);
-  return cacheModelProfiles((profiles ?? []).map(normalizeModelProfile));
+  return (profiles ?? []).map(normalizeModelProfile);
 }
 
 export async function saveModelProfile(profile: ModelProfile): Promise<ModelProfile[]> {
@@ -207,7 +198,7 @@ export async function saveModelProfile(profile: ModelProfile): Promise<ModelProf
     const normalized = normalizeModelProfile(profile);
     const next = [...profiles.filter((p) => p.id !== normalized.id), normalized];
     await writeBlobJson(MODEL_PROFILES_KEY, next);
-    return cacheModelProfiles(next);
+    return next;
   });
 }
 
@@ -224,7 +215,7 @@ export async function updateModelProfile(
       p.id === id ? normalizeModelProfile({ ...p, ...patch, updatedAt: Date.now() }) : p
     );
     await writeBlobJson(MODEL_PROFILES_KEY, next);
-    return cacheModelProfiles(next);
+    return next;
   });
 }
 
@@ -233,7 +224,7 @@ export async function deleteModelProfile(id: string): Promise<ModelProfile[]> {
     const profiles = await getModelProfiles();
     const next = profiles.filter((p) => p.id !== id);
     await writeBlobJson(MODEL_PROFILES_KEY, next);
-    return cacheModelProfiles(next);
+    return next;
   });
 }
 

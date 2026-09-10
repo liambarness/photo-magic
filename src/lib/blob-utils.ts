@@ -17,12 +17,12 @@ export async function putBlob(
   return { url: blob.url, pathname: blob.pathname };
 }
 
-export async function readBlob(urlOrPathname: string): Promise<{
+export async function readBlob(urlOrPathname: string, options: { useCache?: boolean } = {}): Promise<{
   buffer: Buffer;
   contentType: string;
   cacheControl: string;
 }> {
-  const blob = await get(urlOrPathname, { access: BLOB_ACCESS });
+  const blob = await get(urlOrPathname, { access: BLOB_ACCESS, ...options });
   if (!blob) throw new BlobNotFoundError();
 
   const arrayBuffer = await new Response(blob.stream).arrayBuffer();
@@ -35,7 +35,8 @@ export async function readBlob(urlOrPathname: string): Promise<{
 
 export async function readBlobJson<T>(urlOrPathname: string): Promise<T | null> {
   try {
-    const { buffer } = await readBlob(urlOrPathname);
+    // Mutable metadata must come from origin, not a cached pre-save version.
+    const { buffer } = await readBlob(urlOrPathname, { useCache: false });
     return JSON.parse(buffer.toString("utf8")) as T;
   } catch (error) {
     if (error instanceof BlobNotFoundError) return null;

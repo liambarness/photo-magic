@@ -238,3 +238,36 @@ test('fallback and preset polishing defer identity/expression/framing to runtime
   assert.match(params.messages[0].content, /facial expression, gaze, or head position/);
   assert.doesNotMatch(params.messages[1].content, /Framing:/);
 });
+
+test('separate server instances see new, edited, and deleted profiles immediately', async () => {
+  let persisted = [];
+  const mocks = { '@/lib/blob-utils': {
+    readBlobJson: async () => structuredClone(persisted),
+    putBlob: async (_key, data) => { persisted = JSON.parse(data); },
+  } };
+  const generationServer = loadTs('src/lib/server-store.ts', mocks);
+  const editorServer = loadTs('src/lib/server-store.ts', mocks);
+  assert.deepEqual(await generationServer.getModelProfiles(), []);
+  await editorServer.saveModelProfile(profile);
+  assert.equal((await generationServer.getModelProfiles())[0]?.id, 'bob');
+  await editorServer.updateModelProfile('bob', { expressionMode: 'neutral' });
+  assert.equal((await generationServer.getModelProfiles())[0]?.expressionMode, 'neutral');
+  await editorServer.deleteModelProfile('bob');
+  assert.deepEqual(await generationServer.getModelProfiles(), []);
+});
+
+test('metadata reads bypass Blob CDN cache while image reads may use it', async () => {
+  const calls = [];
+  class Missing extends Error {}
+  const blobs = loadTs('src/lib/blob-utils.ts', { '@vercel/blob': {
+    BlobNotFoundError: Missing,
+    get: async (path, options) => {
+      calls.push({ path, options });
+      return { stream: new Response('{}').body, blob: {} };
+    },
+  } });
+  await blobs.readBlobJson('data/model-profiles.json');
+  await blobs.readBlob('https://example.com/face.jpg');
+  assert.equal(calls[0].options.useCache, false);
+  assert.notEqual(calls[1].options.useCache, false);
+});
