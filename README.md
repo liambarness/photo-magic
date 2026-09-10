@@ -18,8 +18,13 @@ Generate AI model photography from flat-lay or mannequin source images. The syst
 
 - **Wearer type** — Mens, Womens, Youth, Toddler (with age-appropriate safety constraints for minors)
 - **Framing** — Full body, Upper + face, Upper no face, Lower no face
-- **Model profiles** — 28 pre-built model identities (8 mens, 8 womens, 6 youth, 6 toddler) with consistent appearance descriptions for visual continuity across a product line
-- **Auto-rotate** — Automatically assigns one stable model identity per product group so all color variants of the same product use the same model
+- **Model profiles** - Four editable starter identities plus custom profiles, with one selected person across a product group.
+- **Face library** - Save up to 12 references of the same person under one profile. Face-visible generation uses up to three: a randomly selected expression reference, the first saved image as an identity anchor, and another angle when available.
+- **Expression control** - Choose Random reference expression, Varied natural expressions, or Neutral expression in Edit Model. Varied mode also works with one reference or an appearance-only profile. Sequential redo avoids the previous successful lead reference or generated expression when alternatives exist.
+
+To consolidate Bob 1 / Bob 2 / Bob 3, edit one Bob profile and add those photos to its Face References library, then select that profile for new uploads. Existing profiles and image history are retained. Redo uses the image's original selected model and its current reference library/expression preference; changing the sidebar selection applies to new uploads.
+
+Expression and identity are prompt-guided, so rendered likeness and variation still need visual review. Product shots, touch-ups, and no-face crops do not receive expression directions or face references. Back views also disable face references and keep the head facing away. Detail views use a product close-up that takes precedence over body framing. Side views adapt expressions in profile. Structured framing/view settings take priority over conflicting preset text, styling, notes, and redo feedback. Label Back/Detail explicitly when needed; Unknown relies on the source view.
 
 ### Touch Ups
 Clean up existing model/product photos taken with a phone or basic camera. The AI preserves the exact person, pose, product fit, logo, artwork, and composition while fixing:

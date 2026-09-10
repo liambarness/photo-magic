@@ -1,4 +1,4 @@
-import { del, get, put } from "@vercel/blob";
+import { BlobNotFoundError, del, get, put } from "@vercel/blob";
 
 export const BLOB_ACCESS = "private" as const;
 
@@ -23,7 +23,7 @@ export async function readBlob(urlOrPathname: string): Promise<{
   cacheControl: string;
 }> {
   const blob = await get(urlOrPathname, { access: BLOB_ACCESS });
-  if (!blob) throw new Error("Blob not found");
+  if (!blob) throw new BlobNotFoundError();
 
   const arrayBuffer = await new Response(blob.stream).arrayBuffer();
   return {
@@ -37,8 +37,9 @@ export async function readBlobJson<T>(urlOrPathname: string): Promise<T | null> 
   try {
     const { buffer } = await readBlob(urlOrPathname);
     return JSON.parse(buffer.toString("utf8")) as T;
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof BlobNotFoundError) return null;
+    throw error;
   }
 }
 
