@@ -14,6 +14,7 @@ import {
   getTouchUpBackgroundOption,
   getTouchUpStrengthOption,
 } from "@/lib/touch-up";
+import { MODEL_CONTINUITY_GUIDANCE } from "@/lib/face-reference-guidance";
 import { backgroundPromptForMode } from "@/lib/background-mode";
 
 interface FinalPromptOptions {
@@ -110,6 +111,7 @@ export function buildFinalPrompt(
       parts.push(wearer.safetyPrompt);
     }
     if (modelProfile) {
+      parts.push(MODEL_CONTINUITY_GUIDANCE);
       if (modelProfile.kind === "human") {
         parts.push(
           `Use selected ${modelProfileKindLabel(modelProfile).toLowerCase()} model profile "${modelProfile.name}". Keep this same model identity context consistent for every image in ${groupLabel || "the same product group"}.`
@@ -122,7 +124,7 @@ export function buildFinalPrompt(
         if (usesVisibleFace) {
           if (humanProfileHasFaceReferences(modelProfile)) {
             parts.push(
-              "Use the attached face reference images collectively as the authoritative source for the model's facial identity, facial features, and skin tone. Use the uploaded product/source image as the authoritative source for the garment/product. Do not copy expression, head position, clothing, background, pose, lighting, or camera angle from the face reference images."
+              "Use the attached face reference images collectively as the authoritative source for the model's facial identity, facial features, and skin tone. Use the uploaded product/source image as the authoritative source for the garment/product. Only the per-generation expression cue may vary a visible facial expression. Do not copy head position, clothing, background, pose, lighting, or camera angle from the face reference images."
             );
           } else {
             parts.push(

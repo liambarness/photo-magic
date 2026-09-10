@@ -306,6 +306,8 @@ export function Workspace() {
             label,
             sourceUrl,
             prompt: finalPrompt,
+            shotMode: photo?.usedSettings.shotMode,
+            viewType: photo?.usedSettings.viewType,
             modelProfileId: photo?.usedSettings.modelProfileId,
             modelPoseType: photo?.usedSettings.modelPoseType,
             imageSize,

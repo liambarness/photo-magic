@@ -12,6 +12,7 @@ import {
   poseUsesVisibleFace,
   type ModelFaceReference,
 } from "@/lib/model-shot";
+import { faceReferenceGuidance } from "@/lib/face-reference-guidance";
 import type { ModelPoseType } from "@/types";
 
 const MIME: Record<string, string> = {
@@ -79,7 +80,9 @@ export async function POST(request: Request) {
     });
     const inputImages: File[] = [imageFile];
     const historyItem = await getImageHistoryItem(photoId);
-    const modelProfileId = requestModelProfileId || historyItem?.usedSettings.modelProfileId || "";
+    const shotMode = body.shotMode ?? historyItem?.usedSettings.shotMode;
+    const viewType = typeof body.viewType === "string" ? body.viewType : historyItem?.usedSettings.viewType;
+    const modelProfileId = shotMode === "product" || shotMode === "touchup" ? "" : requestModelProfileId || historyItem?.usedSettings.modelProfileId || "";
     const modelPoseType = requestModelPoseType ?? historyItem?.usedSettings.modelPoseType;
     const faceReferences = await resolveHumanFaceReferences(modelProfileId, modelPoseType);
 
@@ -90,9 +93,13 @@ export async function POST(request: Request) {
       );
     }
 
+    if (faceReferences.status === "unreadable") {
+      return NextResponse.json({ error: "A saved face reference could not be read. Retry, or replace the unavailable image in the model profile; all references are needed for consistent views." }, { status: 400 });
+    }
+
     inputImages.push(...faceReferences.files);
     const generationPrompt = faceReferences.files.length > 0
-      ? `${prompt}\n\n${faceReferenceGuidance(faceReferences.files.length)}`
+      ? `${prompt}\n\n${faceReferenceGuidance(faceReferences.files.length, viewType)}`
       : prompt;
 
     const format = outputFormat;
@@ -202,6 +209,7 @@ async function resolveHumanFaceReferences(
   | { status: "none"; files: File[] }
   | { status: "ready"; files: File[] }
   | { status: "missing-required"; files: File[] }
+  | { status: "unreadable"; files: File[] }
 > {
   if (!modelProfileId || !poseUsesVisibleFace(modelPoseType)) {
     return { status: "none", files: [] };
@@ -216,7 +224,9 @@ async function resolveHumanFaceReferences(
     return { status: "missing-required", files: [] };
   }
 
-  const references = shuffle((profile.faceReferences ?? []).slice(0, 4));
+  // Keep every saved reference in the same order across views. Randomize only
+  // the expression cue in the prompt, never the identity/hairstyle inputs.
+  const references = (profile.faceReferences ?? []).slice(0, 4);
   const files = await Promise.all(
     references.map((reference, index) =>
       referenceToFile(reference, index)
@@ -224,25 +234,9 @@ async function resolveHumanFaceReferences(
   );
 
   const readable = files.filter((file): file is File => Boolean(file));
-  return readable.length > 0
+  return readable.length === references.length
     ? { status: "ready", files: readable }
-    : { status: "missing-required", files: [] };
-}
-
-function shuffle<T>(items: readonly T[]): T[] {
-  const shuffled = [...items];
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
-  }
-  return shuffled;
-}
-
-function faceReferenceGuidance(referenceCount: number): string {
-  const lastImageIndex = referenceCount + 1;
-  const referenceRange = lastImageIndex === 2 ? "Image 2" : `Images 2-${lastImageIndex}`;
-
-  return `${referenceRange} show the same person and collectively define the model's facial identity. Do not treat the earliest face reference as dominant. Preserve the same person's likeness while creating a fresh, natural expression and head position appropriate for this shot. Image 1 remains the authoritative source for the product. Do not copy clothing, background, lighting, pose, camera angle, or composition from the face references.`;
+    : { status: "unreadable", files: [] };
 }
 
 async function referenceToFile(reference: ModelFaceReference, index: number): Promise<File | null> {
