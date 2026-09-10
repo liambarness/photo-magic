@@ -32,7 +32,7 @@ import {
   getModelWearerOption,
   humanProfileHasFaceReferences,
   modelProfileKindLabel,
-  poseUsesVisibleFace,
+  getModelShotContext,
   productGroupLabel,
 } from "@/lib/model-shot";
 import { getTouchUpStrengthOption } from "@/lib/touch-up";
@@ -200,7 +200,7 @@ export function UploadReviewDialog({
   const pinnedModel = getModelProfile(settings?.modelProfileId, allModelProfiles);
   const pinnedModelNeedsFaceReferences =
     pinnedModel?.kind === "human" &&
-    poseUsesVisibleFace(settings?.modelPoseType) &&
+    items.some((item) => getModelShotContext(settings?.modelPoseType, item.viewType).usesFace) &&
     !humanProfileHasFaceReferences(pinnedModel);
   const touchUpStrength = getTouchUpStrengthOption(settings?.touchUpStrength);
   const backgroundMode = getBackgroundModeOption(settings?.backgroundMode);
@@ -407,9 +407,12 @@ export function UploadReviewDialog({
                             : "None selected"}
                         </p>
                       </div>
+                      <p className="col-span-2 text-[11px] leading-relaxed text-muted-foreground">
+                        Back views keep the face hidden. Detail views use a product close-up instead of body framing. Both disable face references and expressions; side views keep the face in profile.
+                      </p>
                       {pinnedModelNeedsFaceReferences && (
                         <div className="col-span-2 rounded-md border border-destructive/30 bg-destructive/5 p-2 text-[11px] leading-relaxed text-destructive">
-                          Add 1-4 face reference images to this human model before generating face-visible shots.
+                          Add 1-12 face reference images to this human model before generating face-visible shots.
                         </div>
                       )}
                       {pinnedModel?.styling && (

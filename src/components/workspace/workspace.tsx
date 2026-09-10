@@ -32,7 +32,7 @@ import {
   getModelProfile,
   humanProfileHasFaceReferences,
   inferViewType,
-  poseUsesVisibleFace,
+  getModelShotContext,
   productGroupLabel,
 } from "@/lib/model-shot";
 import { useModelProfileStore } from "@/stores/use-model-profile-store";
@@ -306,8 +306,10 @@ export function Workspace() {
             label,
             sourceUrl,
             prompt: finalPrompt,
+            shotMode: photo?.usedSettings.shotMode,
             modelProfileId: photo?.usedSettings.modelProfileId,
             modelPoseType: photo?.usedSettings.modelPoseType,
+            viewType: photo?.usedSettings.viewType,
             imageSize,
             imageQuality,
             outputFormat,
@@ -726,7 +728,7 @@ export function Workspace() {
       if (!profile) continue;
       if (
         profile.kind === "human" &&
-        poseUsesVisibleFace(reviewSettings.modelPoseType) &&
+        getModelShotContext(reviewSettings.modelPoseType, item.viewType).usesFace &&
         !humanProfileHasFaceReferences(profile)
       ) {
         return null;
@@ -770,10 +772,10 @@ export function Workspace() {
     const selectedProfile = getModelProfile(reviewSettings.modelProfileId, allModelProfiles);
     if (
       selectedProfile?.kind === "human" &&
-      poseUsesVisibleFace(reviewSettings.modelPoseType) &&
+      reviewItems.some((item) => getModelShotContext(reviewSettings.modelPoseType, item.viewType).usesFace) &&
       !humanProfileHasFaceReferences(selectedProfile)
     ) {
-      toast.error("Add 1-4 face reference images to this human model before generating face-visible shots.");
+      toast.error("Add 1-12 face reference images to this human model before generating face-visible shots.");
       return;
     }
     const items = resolveReviewItems();
@@ -789,7 +791,7 @@ export function Workspace() {
     setReviewPrompt("");
     setReviewAdditionalParameters("");
     void uploadAndProcess(items, settings);
-  }, [allModelProfiles, reviewItems.length, reviewPresetId, reviewPrompt, reviewSettings, resolveReviewItems, uploadAndProcess]);
+  }, [allModelProfiles, reviewItems, reviewPresetId, reviewPrompt, reviewSettings, resolveReviewItems, uploadAndProcess]);
 
   const handleRedo = useCallback(
     async (photoId: string) => {

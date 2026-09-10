@@ -33,6 +33,8 @@ import { toast } from "sonner";
 import { useModelProfileStore } from "@/stores/use-model-profile-store";
 import {
   MODEL_WEARER_OPTIONS,
+  MAX_FACE_REFERENCES,
+  type ModelExpressionMode,
   type ModelFaceReference,
 } from "@/lib/model-shot";
 import { cleanExtension, cleanPathSegment, validateImageFile } from "@/lib/validation";
@@ -113,6 +115,8 @@ export function ModelProfileEditor({
       previewUrl: blobServingUrl(reference.url),
     }))
   );
+  const [expressionMode, setExpressionMode] = useState<ModelExpressionMode>(existing?.expressionMode ?? "reference");
+  const [profileId] = useState(() => editId ?? crypto.randomUUID());
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const faceReferencesRef = useRef(faceReferences);
@@ -146,15 +150,15 @@ export function ModelProfileEditor({
     if (accepted.length === 0) return;
 
     setFaceReferences((current) => {
-      const slots = Math.max(0, 4 - current.length);
+      const slots = Math.max(0, MAX_FACE_REFERENCES - current.length);
       if (slots === 0) {
-        toast.error("Use up to 4 face reference images.");
+        toast.error("Use up to 12 face reference images.");
         return current;
       }
 
       const nextFiles = accepted.slice(0, slots);
       if (accepted.length > slots) {
-        toast.error("Use up to 4 face reference images.");
+        toast.error("Use up to 12 face reference images.");
       }
 
       const now = Date.now();
@@ -215,14 +219,19 @@ export function ModelProfileEditor({
           }
         );
 
-        uploaded.push({
+        const savedReference: ModelFaceReference = {
           id: reference.id,
           name: reference.name,
           url: blob.url,
           contentType,
           size: reference.file.size,
           createdAt: reference.createdAt,
-        });
+        };
+        uploaded.push(savedReference);
+        // Retain each successful upload if a later upload or profile save fails.
+        revokeLocalReferencePreviews([reference]);
+        setFaceReferences((current) => current.map((item) => item.id === reference.id
+          ? { ...savedReference, previewUrl: blobServingUrl(savedReference.url) } : item));
       }
 
       return uploaded;
@@ -243,56 +252,65 @@ export function ModelProfileEditor({
     }
 
     const now = Date.now();
-    const profileId = editId ?? crypto.randomUUID();
     setSaving(true);
 
     try {
       const uploadedFaceReferences = inferredKind === "human" ? await uploadFaceReferences(profileId) : undefined;
 
+      if (uploadedFaceReferences) {
+        revokeLocalReferencePreviews(faceReferences);
+        setFaceReferences(uploadedFaceReferences.map((reference) => ({
+          ...reference, previewUrl: blobServingUrl(reference.url),
+        })));
+      }
       if (isNew) {
-        addProfile({
+        const saved = await addProfile({
           id: profileId,
           kind: inferredKind,
           name: trimmedName,
           wearerType,
           prompt: prompt.trim(),
           styling: styling.trim(),
+          expressionMode,
           faceReferences: uploadedFaceReferences,
           createdAt: now,
           updatedAt: now,
         });
+        if (!saved) return;
         toast.success(`Created "${trimmedName}"`);
       } else if (editId) {
-        updateProfile(editId, {
+        const saved = await updateProfile(editId, {
           kind: inferredKind,
           name: trimmedName,
           wearerType,
           prompt: prompt.trim(),
           styling: styling.trim(),
+          expressionMode,
           faceReferences: uploadedFaceReferences,
         });
+        if (!saved) return;
         toast.success(`Updated "${trimmedName}"`);
       }
       revokeLocalReferencePreviews(faceReferences);
       onOpenChange(false);
     } catch {
-      toast.error("Face references could not be uploaded.");
+      toast.error("Model profile could not be saved. Check the connection and try again.");
     } finally {
       setSaving(false);
     }
-  }, [name, prompt, faceReferences, editId, isNew, uploadFaceReferences, wearerType, styling, onOpenChange, addProfile, updateProfile]);
+  }, [name, prompt, profileId, expressionMode, faceReferences, editId, isNew, uploadFaceReferences, wearerType, styling, onOpenChange, addProfile, updateProfile]);
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
     if (!editId) return;
     const confirmed = window.confirm(`Delete model profile "${name}"?`);
     if (!confirmed) return;
-    deleteProfile(editId);
+    if (!await deleteProfile(editId)) return;
     toast.success(`Deleted "${name}"`);
     onOpenChange(false);
   }, [editId, name, deleteProfile, onOpenChange]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => { if (!saving) onOpenChange(next); }}>
       <DialogContent className="flex max-h-[min(760px,92vh)] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg">
         <DialogHeader className="shrink-0 border-b px-4 py-4 pr-12">
           <DialogTitle>{isNew ? "New Model Profile" : "Edit Model Profile"}</DialogTitle>
@@ -364,16 +382,16 @@ export function ModelProfileEditor({
                       <CircleHelp className="h-3.5 w-3.5" />
                     </TooltipTrigger>
                     <TooltipContent side="top" align="start" className="max-w-64">
-                      No images means this saves as an AI model. Add 1-4 face images to save it as a human model for face-visible shots.
+                      No images means this saves as an AI model. Add 1-12 face images to save it as a human model for face-visible shots.
                     </TooltipContent>
                   </Tooltip>
                 </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  Optional. Face-visible shots use these as identity references.
+                  Add different expressions and angles of the same person. The first image anchors identity; each shot selects an expression reference.
                 </p>
               </div>
               <Badge variant="outline" className="shrink-0">
-                {faceReferences.length > 0 ? "Human" : "AI"} - {faceReferences.length}/4
+                {faceReferences.length > 0 ? "Human" : "AI"} - {faceReferences.length}/{MAX_FACE_REFERENCES}
               </Badge>
             </div>
 
@@ -435,6 +453,21 @@ export function ModelProfileEditor({
           </div>
 
           <div className="space-y-1.5">
+            <Label htmlFor="mp-expression">Expression</Label>
+            <Select value={expressionMode} onValueChange={(value) => setExpressionMode(value as ModelExpressionMode)}>
+              <SelectTrigger id="mp-expression" className="w-full"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="reference">Random reference expression</SelectItem>
+                <SelectItem value="varied">Varied natural expressions</SelectItem>
+                <SelectItem value="neutral">Neutral expression</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-[11px] text-muted-foreground">
+              Reference mode chooses a photo&apos;s expression per generation. Varied mode chooses a natural expression, even with one reference. Identity stays consistent. Without references, both modes vary the described model&apos;s expression.
+            </p>
+          </div>
+
+          <div className="space-y-1.5">
             <Label htmlFor="mp-styling">Default Styling</Label>
             <Textarea
               id="mp-styling"
@@ -459,6 +492,7 @@ export function ModelProfileEditor({
                 size="sm"
                 className="text-destructive hover:text-destructive"
                 onClick={handleDelete}
+                disabled={saving}
               >
                 <Trash2 className="mr-1.5 h-3.5 w-3.5" />
                 Delete

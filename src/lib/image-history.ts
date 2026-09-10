@@ -1,3 +1,4 @@
+import type { ModelGeneration } from "./model-expression";
 import type { PhotoSettings, SourcePhoto, TokenUsage } from "@/types";
 import { blobServingUrl, blobStorageUrl, deleteBlobs, putBlob, readBlobJson } from "@/lib/blob-utils";
 import { list } from "@vercel/blob";
@@ -17,6 +18,7 @@ export interface ImageHistoryItem {
   status: SourcePhoto["status"];
   error: string | null;
   usedSettings: PhotoSettings;
+  lastModelGeneration?: ModelGeneration;
   visibility: SourcePhoto["visibility"];
   cost: number;
   usage: TokenUsage | null;
@@ -108,6 +110,7 @@ export async function completeImageHistoryItem(input: {
   usage: TokenUsage | null;
   label?: string;
   batchFolder?: string;
+  lastModelGeneration?: ModelGeneration;
 }): Promise<void> {
   await withHistoryLock(async () => {
     const data = await readHistoryData();
@@ -120,6 +123,7 @@ export async function completeImageHistoryItem(input: {
       error: null,
       cost: item.cost + input.cost,
       usage: input.usage,
+      lastModelGeneration: input.lastModelGeneration,
       label: input.label ?? item.label,
       batchFolder: input.batchFolder ?? item.batchFolder,
       updatedAt: Date.now(),

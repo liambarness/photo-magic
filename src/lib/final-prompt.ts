@@ -1,12 +1,12 @@
 import type { ActivePresetConfig, ModelViewType, Preset } from "@/types";
 import {
   type ModelProfile,
-  getModelPoseOption,
+  getModelShotContext,
+  modelShotContextGuidance,
   getModelProfile,
   getModelWearerOption,
   humanProfileHasFaceReferences,
   modelProfileKindLabel,
-  poseUsesVisibleFace,
   productGroupLabel,
   viewTypeLabel,
 } from "@/lib/model-shot";
@@ -89,12 +89,12 @@ export function buildFinalPrompt(
 
   if (preset.shotMode === "model") {
     const wearer = getModelWearerOption(activePreset.modelWearerType);
-    const pose = getModelPoseOption(activePreset.modelPoseType);
+    const context = getModelShotContext(activePreset.modelPoseType, options.viewType);
     const modelProfile = getModelProfile(
       options.modelProfileId ?? activePreset.modelProfileId,
       options.allProfiles
     );
-    const usesVisibleFace = poseUsesVisibleFace(activePreset.modelPoseType);
+    const usesVisibleFace = context.usesFace;
     const groupLabel =
       options.productGroupLabel ??
       (options.productGroupId ? productGroupLabel(options.productGroupId) : "");
@@ -104,7 +104,7 @@ export function buildFinalPrompt(
         : "";
 
     parts.push(
-      `Model shot parameters: use ${indefiniteArticle(wearer.prompt)} ${wearer.prompt}. ${pose.prompt}`
+      `Model shot parameters: use ${indefiniteArticle(wearer.prompt)} ${wearer.prompt}. ${context.framing} ${context.viewPrompt}`
     );
     if (wearer.safetyPrompt) {
       parts.push(wearer.safetyPrompt);
@@ -122,16 +122,16 @@ export function buildFinalPrompt(
         if (usesVisibleFace) {
           if (humanProfileHasFaceReferences(modelProfile)) {
             parts.push(
-              "Use the attached face reference images collectively as the authoritative source for the model's facial identity, facial features, and skin tone. Use the uploaded product/source image as the authoritative source for the garment/product. Do not copy expression, head position, clothing, background, pose, lighting, or camera angle from the face reference images."
+              "Use the attached face reference images collectively as the authoritative source for the model's facial identity, facial features, and skin tone. Use the uploaded product/source image as the authoritative source for the garment/product. Use the per-generation expression direction to guide expression and subtle head position. Do not copy clothing, background, body pose, lighting, or camera angle from the face reference images."
             );
           } else {
             parts.push(
-              "This human model profile needs 1-4 face reference images before generating a face-visible model shot."
+              "This human model profile needs 1-12 face reference images before generating a face-visible model shot."
             );
           }
         } else {
           parts.push(
-            "This framing must not show a full face. Do not use face-reference imagery to pull the crop upward; preserve the no-face framing as the authority."
+            "This framing or product view must not show a face. Do not use face-reference imagery to pull the crop upward; preserve the no-face framing as the authority."
           );
         }
       } else {
@@ -179,5 +179,8 @@ export function buildFinalPrompt(
     parts.push(`IMPORTANT additional parameters: ${notes}.`);
   }
 
+  if (preset.shotMode === "model") {
+    parts.push(modelShotContextGuidance(activePreset.modelPoseType, options.viewType));
+  }
   return parts.join(" ");
 }

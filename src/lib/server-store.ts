@@ -1,5 +1,5 @@
 import type { Preset } from "@/types";
-import { normalizeModelProfile, type ModelProfile } from "@/lib/model-shot";
+import { STARTER_MODEL_PROFILES, normalizeModelProfile, type ModelProfile } from "@/lib/model-shot";
 import { putBlob, readBlobJson as readJsonBlob } from "@/lib/blob-utils";
 
 const LEGACY_STORE_KEY = "data/store.json";
@@ -214,9 +214,12 @@ export async function saveModelProfile(profile: ModelProfile): Promise<ModelProf
 export async function updateModelProfile(
   id: string,
   patch: Partial<Omit<ModelProfile, "id" | "createdAt">>
-): Promise<ModelProfile[]> {
+): Promise<ModelProfile[] | null> {
   return withStoreLock(async () => {
-    const profiles = await getModelProfiles();
+    const saved = await getModelProfiles();
+    const target = saved.find((p) => p.id === id) ?? STARTER_MODEL_PROFILES.find((p) => p.id === id);
+    if (!target) return null;
+    const profiles = saved.some((p) => p.id === id) ? saved : [...saved, target];
     const next = profiles.map((p) =>
       p.id === id ? normalizeModelProfile({ ...p, ...patch, updatedAt: Date.now() }) : p
     );
