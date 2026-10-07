@@ -197,3 +197,7 @@ When creating a new preset, the prompt is automatically polished by the AI to pr
 - **Storage** — Vercel Blob (private, authenticated)
 - **Auth** — HMAC-signed tokens with 90-day expiry
 - **Notifications** — Sonner toast system
+
+## DescriptionMagic integration
+
+The desktop integration API uses PHOTO_MAGIC_API_SECRET and private Blob storage. See [INTEGRATION_API.md](INTEGRATION_API.md) for configuration, job submission, status polling, and authenticated downloads. Browser login continues to use APP_PASSWORD.

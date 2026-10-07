@@ -1,8 +1,12 @@
+import { integrationAuth } from "@/lib/integration-auth";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getAppPassword, verifyAuthToken } from "@/lib/auth";
 
 export async function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith("/api/integration/")) {
+    return integrationAuth(request) ?? NextResponse.next();
+  }
   const password = getAppPassword();
   if (!password) return NextResponse.next();
 
